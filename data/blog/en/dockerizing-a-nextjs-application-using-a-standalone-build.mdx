@@ -1,0 +1,331 @@
+---
+title: "Dockerizing a Next.js Application using a Standalone Build"
+date: '2024/09/25'
+lastmod: '2024/09/25'
+language: en
+tags: ['docker', 'nextjs', 'javascript', 'typescript', 'frontend']
+authors: ['default']
+draft: false
+featured: false
+summary: Dockerizing a Next.js application is much easier than it seems. In this article, I'll teach you how to achieve it. 
+---
+
+## Introduction
+
+[Docker](https://www.docker.com) has gained popularity in recent years for enabling applications to be placed inside containers. These containers can be deployed to any environment and will work the same way in all of them, providing a _uniform_ behavior regardless of the platform where the application runs. These containers use `images`, which are a copy or compressed _snapshot_ of the application. By placing them within a container, they are displayed exactly as they are. This is one of those technologies that some were desperate for, while others don't realize they need it until they hear about it.
+
+For its part, [Next.js](https://nextjs.org) is the most popular [React](https://react.dev) framework. As any other JavaScript application that uses a bundler such as [webpack](https://webpack.js.org) or [Vite](https://vitejs.dev), for production a compiled version of the project is used. This is known as `build`. A build aims to provide the minimum amount of code needed for the application to function the same as it does in development. This ensures that JavaScript files are very lightweight, allowing the browser to fetch and interpret them in the shortest possible time to render the user interface or perform whatever tasks the application requires."
+
+Next.js, specifically, offers a version that further reduces the build size: the [Standalone Build](https://nextjs.org/docs/app/api-reference/next-config-js/output#automatically-copying-traced-files). If we use Docker to create an image for our Next.js application, we can easily deploy that great application that we have built to any environment without worrying about compatibility or additional configurations. In this article, we'll see how to achieve it.
+
+<TOCInline toc={props.toc} exclude="Introduction" locale={props.locale} asDisclosure />
+
+## Package manager
+
+In my case, I like to use [pnpm](https://pnpm.io) to reduce the disk size of the `node_modules` folder. Therefore, the example of the Next.js Docker image uses this package manager, but you can make slight adjustments to use [npm](https://www.npmjs.com) or [yarn](https://yarnpkg.com) if you prefer.
+
+## Next.js configuration
+
+In the `next.config.js` file, we have to specify that the resulting build type will be `standalone` when the application is compiled for production. For this, we need to include the following:
+
+```ts
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  output: "standalone"
+};
+
+export default nextConfig;
+```
+
+This way, the output of the application will be of type `standalone`.
+
+## Dockerfile
+
+The file that represents our Docker image is the [Dockerfile](https://docs.docker.com/reference/dockerfile/). Commonly this file is placed in the root of the project. Let's create it step by step.
+
+### Base image
+
+Every Docker image starts from a base image. In this case, any JavaScript project that runs a server, will need a runtime like [Node.js](https://nodejs.org/en). We'll take as base the Docker image of a Node.js version that is compatible with our project. In my case, I like to use the [Alpine](https://www.alpinelinux.org) version of the images, since this is more lightweight. However, we have to check that there are no compatibility issues when building the image, otherwise, we have to use the "non-Alpine" version of the image. For this example, I use the `node:22.6.0-alpine3.19` image as base.
+
+```Dockerfile
+FROM node:22.6.0-alpine3.19 AS base
+```
+
+We place an alias to recycle it in the different steps or `stages` of the image.
+
+### System and pnpm dependencies
+
+The next stage is to install the dependencies. In this case, only one system dependency is required: `libc6-compat`. [Here](https://github.com/nodejs/docker-node?tab=readme-ov-file#nodealpine) it is mentioned why.
+
+```Dockerfile
+FROM base AS build-deps
+RUN apk add --no-cache libc6-compat
+```
+
+Since pnpm isn't included by default in Node.js, it is necessary to activate it and set the environment variables so as the installed packages can be cached. 
+
+```Dockerfile
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+
+RUN corepack enable
+RUN corepack prepare pnpm@latest --activate
+```
+
+Then, we have to set the working directory to have a clear separation between the system folders and the application folder. In this case, we use `/app`.
+
+```Dockerfile
+WORKDIR /app
+```
+
+Now we have to copy the files containing the project dependencies information and install them.
+
+```Dockerfile
+COPY package.json pnpm-lock.yaml ./
+
+RUN pnpm install --frozen-lockfile --prefer-frozen-lockfile
+```
+
+The `--frozen-lockfile` and `--prefer-frozen-lockfile` arguments are used to respect the versions specified in the `lock file` of pnpm.
+
+To finish with this stage, the `sharp` library is added. This is necessary to optimize images in a production environment in Next.js.
+
+```Dockerfile
+RUN pnpm add sharp
+```
+
+The full stage looks like this:
+
+```Dockerfile
+FROM base AS build-deps
+RUN apk add --no-cache libc6-compat
+
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+
+RUN corepack enable
+RUN corepack prepare pnpm@latest --activate
+
+WORKDIR /app
+
+COPY package.json pnpm-lock.yaml ./
+
+RUN pnpm install --frozen-lockfile --prefer-frozen-lockfile
+
+RUN pnpm add sharp
+```
+
+### Building the application
+
+The next stage is to compile the Next.js application. This is where the key for making the image work lies, because the rest of the Dockerfile isn't anything different or that you can't find in any other example. <mark>At this stage it is necessary to pass as build arguments the environment variables used in the project and set them before generating the build.</mark>
+
+This is because, as there are two times in which the applications work, build time and run time, if the environment variables are not available at run time, all the static assets that use them won't have a value for them and the application won't work properly. In this example, three environment variables are used: `NEXT_PUBLIC_BACKEND_URL`, `FRONTEND_URL` and `JWT_SECRET`.
+
+```Dockerfile
+FROM base AS builder
+
+ARG NEXT_PUBLIC_BACKEND_URL
+ENV NEXT_PUBLIC_BACKEND_URL=$NEXT_PUBLIC_BACKEND_URL
+
+ARG FRONTEND_URL
+ENV FRONTEND_URL=$FRONTEND_URL
+
+ARG JWT_SECRET
+ENV JWT_SECRET=$JWT_SECRET
+```
+
+Then, pnpm is activated, the work directory is set, all the application files are copied and the build is generated.
+
+```Dockerfile
+RUN corepack enable
+RUN corepack prepare pnpm@latest --activate
+
+WORKDIR /app
+
+COPY --from=build-deps /app/node_modules ./node_modules
+
+COPY . .
+
+RUN pnpm build
+```
+
+The full stage looks like this:
+
+```Dockerfile
+FROM base AS builder
+
+ARG NEXT_PUBLIC_BACKEND_URL
+ENV NEXT_PUBLIC_BACKEND_URL=$NEXT_PUBLIC_BACKEND_URL
+
+ARG FRONTEND_URL
+ENV FRONTEND_URL=$FRONTEND_URL
+
+ARG JWT_SECRET
+ENV JWT_SECRET=$JWT_SECRET
+
+RUN corepack enable
+RUN corepack prepare pnpm@latest --activate
+
+WORKDIR /app
+
+COPY --from=build-deps /app/node_modules ./node_modules
+
+COPY . .
+
+RUN pnpm build
+```
+
+### Running the application
+
+The last stage is to run the application. To do this, we first set the Node production environment:
+
+```Dockerfile
+FROM base AS runner
+
+ENV NODE_ENV=production
+```
+
+For personal preference, Next.js telemetry is disabled. That is, we basically don't send our application data to Vercel to improve Next.js through error diagnosis and usage metrics.
+
+```Dockerfile
+ENV NEXT_TELEMETRY_DISABLED=1
+```
+
+Also, as a good practice, it is recommended to use a `non-root` user in Docker images. This, for instance, avoids security breaches in case the container has access to the `host` network. To do this, a `nodejs` group and a `nextjs` user are added and assigned the `.next` folder property.
+
+```Dockerfile
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+RUN mkdir .next
+RUN chown nextjs:nodejs .next
+```
+
+Then, the files generated by the `standalone build` are copied to create the same structure of the default build of Next.js.
+
+```Dockerfile
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+```
+
+Since we created the `nextjs` user, we need to specify that this will be the user to use.
+
+```Dockerfile
+USER nextjs
+```
+
+Likewise, it is required to specify the exposed port of the container, as well as the Node port and the `hostname` that will be used, which will be `0.0.0.0` since we don't know the exact address.
+
+```Dockerfile
+EXPOSE 3000
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+```
+
+Then, the environment variables for the application runtime are specified from the build arguments. 
+
+```Dockerfile
+ARG NEXT_PUBLIC_BACKEND_URL
+ENV NEXT_PUBLIC_BACKEND_URL=$NEXT_PUBLIC_BACKEND_URL
+
+ARG FRONTEND_URL
+ENV FRONTEND_URL=$FRONTEND_URL
+
+ARG JWT_SECRET
+ENV JWT_SECRET=$JWT_SECRET
+```
+
+Specified environment variables in a `docker-compose.yml` file can be used, as well as when running the container, however, it wouldn't make sense for the environment variables in this context to be different at build time and run time.
+
+Finally, we run the server.
+
+```Dockerfile
+CMD ["node", "server.js"]
+```
+
+### Complete file
+
+The complete Dockerfile looks like this:
+
+```Dockerfile
+FROM node:22.6.0-alpine3.19 AS base
+
+FROM base AS build-deps
+RUN apk add --no-cache libc6-compat
+
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+
+RUN corepack enable
+RUN corepack prepare pnpm@latest --activate
+
+WORKDIR /app
+
+COPY package.json pnpm-lock.yaml ./
+
+RUN pnpm install --frozen-lockfile --prefer-frozen-lockfile
+
+RUN pnpm add sharp
+
+FROM base AS builder
+
+ARG NEXT_PUBLIC_BACKEND_URL
+ENV NEXT_PUBLIC_BACKEND_URL=$NEXT_PUBLIC_BACKEND_URL
+
+ARG FRONTEND_URL
+ENV FRONTEND_URL=$FRONTEND_URL
+
+ARG JWT_SECRET
+ENV JWT_SECRET=$JWT_SECRET
+
+RUN corepack enable
+RUN corepack prepare pnpm@latest --activate
+
+WORKDIR /app
+
+COPY --from=build-deps /app/node_modules ./node_modules
+
+COPY . .
+
+RUN pnpm build
+
+FROM base AS runner
+
+ENV NODE_ENV=production
+
+ENV NEXT_TELEMETRY_DISABLED=1
+
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+RUN mkdir .next
+RUN chown nextjs:nodejs .next
+
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+
+USER nextjs
+
+EXPOSE 3000
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+
+ARG NEXT_PUBLIC_BACKEND_URL
+ENV NEXT_PUBLIC_BACKEND_URL=$NEXT_PUBLIC_BACKEND_URL
+
+ARG FRONTEND_URL
+ENV FRONTEND_URL=$FRONTEND_URL
+
+ARG JWT_SECRET
+ENV JWT_SECRET=$JWT_SECRET
+
+CMD ["node", "server.js"]
+```
+
+You can also find the file in this [gist](https://gist.github.com/carlos-talavera/600bbe58949237ece5e990efd597ac87).
+
+## Conclusion
+
+Creating a Docker image for a Next.js application can be daunting at first because of all the considerations we have to take into account. In addition, there is the popular belief that self-hosting a Next.js application, i. e., outside Vercel, is complicated. It isn't. By understanding the key parts, it's actually simple.
+
+I hope that with this information you can dockerize your Next.js application without problems. And you know the drill, if you have any question or want to share something, leave it in the comments :)

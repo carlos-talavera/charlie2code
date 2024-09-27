@@ -1,0 +1,74 @@
+---
+title: "Generación de Clave de Laravel y Configuración de Permisos en Docker"
+date: '2024/09/26'
+lastmod: '2024/09/26'
+language: es
+tags: ['docker', 'laravel', 'php', 'backend']
+authors: ['default']
+draft: false
+featured: false
+summary: Dos de los errores más comunes al dockerizar una aplicación de Laravel son no generar la clave ni configurar los permisos. En este artículo, veremos cómo arreglarlo.
+---
+
+## Introducción
+
+Cuando se dockeriza una aplicación de Laravel, es común encontrar errores relacionados con los permisos y con la falta de una clave de aplicación. Al menos eso me pasó a mí la primera vez que lo hice, y sé que es común porque, si no lo mencionan en la documentación, entonces no es obvio y le puede pasar a muchas personas. En este breve artículo, veamos cómo solucionarlo.
+
+<TOCInline toc={props.toc} exclude="Introducción" locale={props.locale} asDisclosure />
+
+## Generación de clave
+
+Laravel utiliza una clave de aplicación que se coloca en una variable de entorno `APP_KEY` para todo lo que tenga que ver con encriptar información, como se indica en la [documentación](https://laravel.com/docs/11.x/encryption). Esto se hace por defecto al instalar Laravel, pero por algún motivo no ocurría _automáticamente_ al utilizar la imagen de Docker de mi aplicación. Por lo tanto, es necesario generarla manualmente mediante el siguiente comando:
+
+```bash
+php artisan key:generate
+```
+
+De esta forma, se establecerá automáticamente en la variable `APP_KEY` de nuestro archivo `.env`.
+
+## Configuración de permisos
+
+Al utilizar una [imagen de Docker de PHP](https://hub.docker.com/_/php) que a su vez utiliza [PHP-FPM](https://www.php.net/manual/en/install.fpm.php), se proveen el usuario y grupo `www-data`. Por esto, es necesario que este usuario tenga los permisos requeridos para crear archivos, por ejemplo para registros o archivos que se almacenen en un volumen de Docker conectado con la carpeta `public` de Laravel. Asumiendo que el directorio de trabajo de la imagen de Docker de nuestra aplicación es `/var/www`, se necesita asignar el propietario mediante el siguiente comando:
+
+```bash
+chown -R www-data:www-data /var/www
+```
+
+## Archivo para entrypoint de imagen de Docker
+
+Para simplificar este proceso, en la imagen de Docker se puede colocar un archivo que sea el `entrypoint`, de forma que cuando se monte la imagen en un contenedor, se ejecute este archivo. Para esto, en nuestro proyecto creamos un archivo `/bin/docker-entrypoint.sh` que funcionará como entrypoint, luego, en el Dockerfile tenemos que copiar este archivo al sistema de archivos del contenedor, hacerlo ejecutable y especificar que será el entrypoint. Lo anterior se vería así al final del Dockerfile:
+
+```Dockerfile
+# Copiar el archivo de punto de entrada al directorio de trabajo
+COPY /bin/docker-entrypoint.sh /usr/local/bin/
+
+# Hacer el archivo ejecutable
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Establecer el punto de entrada del contenedor
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+```
+
+El contenido de este archivo será la generación de la clave, la configuración de permisos, y la creación del enlace entre las carpetas `storage` y `public` (otro error común, pero el título no puede ser tan largo, ¿verdad?).
+
+```sh
+#!/bin/sh
+
+# Configuración de permisos
+chown -R www-data:www-data /var/www
+
+# Enlazar carpeta de storage con la carpeta de public
+php artisan storage:link
+
+# Generar clave de aplicación (--force es necesario en producción para omitir la confirmación)
+php artisan key:generate --force
+
+# Ejecutar el comando especificado en el Dockerfile (CMD ["comando"])
+exec "$@"
+```
+
+## Conclusión
+
+Si bien este tipo de errores pueden parecer obvios para gente con más experiencia, para la gente que recién comienza en el mundo de Docker o Laravel no lo son. El uso de un archivo para el entrypoint del contenedor brinda mucha flexibilidad y poder porque ahí se pueden colocar todos los comandos que necesitemos al arrancar el contenedor, así que recomiendo usarlo cuando se necesite.
+
+Espero que esto te ayude en caso de que tu aplicación no funcione correctamente debido a alguno de estos problemas. Si tienes dudas o quieres compartir algo, déjalo en los comentarios :)

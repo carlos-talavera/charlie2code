@@ -1,0 +1,13 @@
+{
+  "mail": "Correo",
+  "firstName": "Nombre(s)",
+  "lastName": "Apellido(s)",
+  "title": "Suscribirse a la newsletter",
+  "messageError": "Tu correo electrónico no es válido o ya estás suscrito",
+  "placeholderSuccess": "¡Suscrito!  🎉",
+  "placeholderDefault": "Ingresa tu correo",
+  "placeholderDefaultFirstName": "Ingresa tu(s) nombre(s)",
+  "placeholderDefaultLastName": "Ingresa tu(s) apellido(s)",
+  "buttonSuccess": "¡Gracias!",
+  "buttonDefault": "Suscribirme"
+}

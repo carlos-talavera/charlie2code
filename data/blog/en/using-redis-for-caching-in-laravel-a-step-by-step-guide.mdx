@@ -1,0 +1,314 @@
+---
+title: "Using Redis for Caching in Laravel: A Step-by-Step Guide"
+date: '2024/09/22'
+lastmod: '2024/09/22'
+language: en
+tags: ['laravel', 'php', 'redis', 'backend']
+authors: ['default']
+draft: false
+featured: false
+summary: Let's see how to setup Redis for cache in a Laravel application and tips on how to handle cache efficiently.
+---
+
+## Introduction
+
+[Laravel](https://laravel.com) is, without fear of contradiction, the most popular PHP framework, and among the most popular within web development. [Redis](https://redis.io) is, for its part, an in-memory database widely used for caching storage due to the fact that data is stored in key-value pairs, which makes its management easier. In this article we'll see how to set up Redis in a Laravel application and what is to be considered when handling cache keys.
+
+<TOCInline toc={props.toc} exclude="Introduction" locale={props.locale} asDisclosure />
+
+## Prerequisites
+
+Make sure you have Redis installed on your computer. You can use [Docker's official image](https://hub.docker.com/_/redis), or install it directly on [Windows](https://redis.io/docs/latest/operate/oss_and_stack/install/install-redis/install-redis-on-windows/), [MacOS](https://redis.io/docs/latest/operate/oss_and_stack/install/install-redis/install-redis-on-mac-os/) or [Linux](https://redis.io/docs/latest/operate/oss_and_stack/install/install-redis/install-redis-on-linux/). In the case of Linux, it varies from distribution to distribution, however, the common thing is that it's available through the package manager of the operating system, usually under the name of `redis` or `redis-cli`. Once you confirm that it's installed and the connection works, let's see how to set it up in Laravel.
+
+## Installing Redis in Laravel
+
+So far we have simply installed the Redis server in our computer, but we need to have a way to connect from a PHP application. For this there are two options, using [phpredis](https://github.com/phpredis/phpredis), a PHP extension, or [predis](https://github.com/predis/predis), a library. None is better than the other, they just have different objectives and scopes. `phpredis` has the advantage that it allows you to connect to Redis from any PHP project that is executed in that computer, whereas `phpredis`, being a library, only allows to connect from the projects where it's installed. In my case, I have experience with `phpredis`, so let's see how to install it.
+
+### Installing phpredis
+
+The installation guide for several operating systems can be found [here](https://github.com/phpredis/phpredis/blob/develop/INSTALL.md). Again, in Linux, if your distribution is not listed in the guide, my recommendation is to look in your distribution's documentation for the installation process. This process is often to install the package using the package manager and uncomment the extension(s) in the PHP configuration files.
+
+### Laravel configuration
+
+The first thing we need to do is make sure that Redis configuration in `config/database.php` is the right one. It must look like this:
+
+```php
+// config/database.php
+'redis' => [
+  'client' => env('REDIS_CLIENT', 'phpredis'),
+
+  'options' => [
+      'cluster' => env('REDIS_CLUSTER', 'redis'),
+      'prefix' => env('REDIS_PREFIX', Str::slug(env('APP_NAME', 'laravel'), '_').'_database_'),
+  ],
+
+  'default' => [
+      'url' => env('REDIS_URL'),
+      'host' => env('REDIS_HOST', '127.0.0.1'),
+      'username' => env('REDIS_USERNAME'),
+      'password' => env('REDIS_PASSWORD'),
+      'port' => env('REDIS_PORT', '6379'),
+      'database' => env('REDIS_DB', '0'),
+  ],
+
+  'cache' => [
+      'url' => env('REDIS_URL'),
+      'host' => env('REDIS_HOST', '127.0.0.1'),
+      'username' => env('REDIS_USERNAME'),
+      'password' => env('REDIS_PASSWORD'),
+      'port' => env('REDIS_PORT', '6379'),
+      'database' => env('REDIS_CACHE_DB', '1'),
+  ]
+]
+```
+
+Then we must set the necessary environment variables to use Redis as a cache and connect. Here it is assumed that `phpredis` is used, that Redis is installed locally and not in a Docker container, that you left the default port when installing Redis, and that you didn't set up any password:
+
+```ini
+# .env
+CACHE_STORE=redis
+CACHE_PREFIX=laravel_cache
+
+REDIS_CLIENT=phpredis
+# For Docker, use the name of the service
+REDIS_HOST=127.0.0.1
+REDIS_PASSWORD=null
+REDIS_PORT=6379
+
+REDIS_DB=0
+REDIS_CACHE_DB=1
+```
+
+`REDIS_URL` is used when you want to specify the connection with a single URL, for example, `tcp://127.0.0.1:6379?database=0`. Otherwise it's needed to specify the rest of the fields so that Laravel forms this URL at the end and connects. On the other hand, the cache prefix is important because we'll have to use it when searching keys. In the case of `REDIS_DB` and `REDIS_CACHE_DB`, it's just a way to separate distinct databases depending on the purpose. The first one is the default one if Redis is used without specifying the database, while the second one only takes care of the cache.
+
+## Using Redis in Laravel
+
+Once the configuration is ready, it's time to use Redis in our application. Laravel provides us a `Illuminate\Support\Facades\Cache` class as part of its `facades` to make all sorts of operations (if you didn't know, _facade_ is a [design pattern](https://refactoring.guru/design-patterns/facade)). It's important to note that when using these methods, it's not necessary to use the Redis prefix, since Laravel adds it automatically. The basic methods are presented below:
+
+### Get an element
+
+```php
+use Illuminate\Support\Facades\Cache;
+
+Cache::get('key'); // value or null
+```
+
+### Check if a key exists
+```php
+use Illuminate\Support\Facades\Cache;
+
+if (Cache::has('key')) {
+  // do something
+}
+```
+
+### Add or overwrite an element
+
+The `put` method adds or overwrites a cache element, that is, if it doesn't exist it creates it, and if it exists it updates it.
+
+```php
+use Illuminate\Support\Facades\Cache;
+
+$minutes = 60; // 1 hour
+Cache::put('key', 'value', $minutes);
+```
+
+As seen above, the time in minutes can be specified. If not specified, the element will persist until it is explicitly deleted.
+
+### Add several elements
+
+```php
+use Illuminate\Support\Facades\Cache;
+
+$minutes = 60; // 1 hour
+Cache::putMany([
+    'key1' => 'value1',
+    'key2' => 'value2'
+], $minutes);
+```
+
+Similar to `put`, with the difference that multiple elements are stored at once.
+
+### Add an element if it doesn't exist
+
+```php
+use Illuminate\Support\Facades\Cache;
+
+$minutes = 60; // 1 hour
+Cache::add('key', 'value', $minutes);
+```
+
+Similar to `put`, with the difference that `add` only adds an element if it doesn't exist, so it doesn't overwrite the previous one if there is one.
+
+### Delete an element
+
+```php
+use Illuminate\Support\Facades\Cache;
+
+Cache::forget('key');
+```
+
+### Clear the cache
+
+```php
+use Illuminate\Support\Facades\Cache;
+
+Cache::flush();
+```
+
+This method deletes all the cache elements, so it must be used with caution. 
+
+### Get or add an element for a fixed time if it doesn't exist
+
+The `remember` method is useful when getting or adding an element to the cache for a fixed time is needed if it doesn't exist yet, i. e., it doesn't overwrite and works like `add`. Besides this, its purpose is that by using a `closure`, complex operations can be done inside the function to determine the value to be obtained or added.
+
+```php
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+
+$minutes = 60; // 1 hour
+$value = Cache::remember('key', $minutes, function () {
+    return DB::table('users')->get();
+});
+```
+
+### Get or add an element if it doesn't exist
+
+```php
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+
+$value = Cache::rememberForever('key', function () {
+    return DB::table('users')->get();
+});
+```
+
+Similar to `remember`, with the difference that here no time is specified and the element persists until it is explicitly deleted.
+
+### Get and element and then delete it
+
+```php
+use Illuminate\Support\Facades\Cache;
+
+$value = Cache::pull('key');
+```
+
+This method obtains the value associated to the key, stores it on the `$value` variable and removes the element from the cache. Clearly, it must be used with care and always assigned to a variable so as not to lose the information. You can find more methods in the [official docs](https://laravel.com/docs/11.x/cache).
+
+## Example of a pattern search
+
+A common situation is that we need to search for all the keys that match a pattern, that contain a certain expression. To do this, the `Cache` facade is no longer used, but we use the `Redis` one directly, which provides more advanced methods as the ones that exist when interacting directly with the Redis server. Under the Redis syntax, an asterisk `*` means `all`. So, for example, if we want to obtain all the keys, the pattern would simply be `*`. Some _**bad**_ examples would recommend to do the following:
+
+```php
+use Illuminate\Support\Facades\Redis;
+
+$found_keys = Redis::keys('*');
+```
+
+This would return us an array with all the keys that were found. If we wanted to get the values we would have to loop through this array and get every value using the same `Redis` facade, as following:
+
+```php
+use Illuminate\Support\Facades\Redis;
+
+$found_keys = Redis::keys('*');
+
+// Get the values
+foreach ($found_keys as $found_key) {
+  $value = Redis::get($found_key);
+  // Do something with the value
+}
+```
+
+By this point you should have two questions: why is it bad to do this and why is `Redis` used instead of `Cache` to get the values. The latter is easier to answer, so I'll start there. Do you remember that I said that when using `Cache` Laravel handles the prefix automatically? Well, when the keys are obtained using `Redis`, these contain the prefix, so if we tried to find their value using `Cache`, it wouldn't work, since Laravel adds the prefix, but it doesn't detect if it already exists, so the result would be a key with the prefix duplicated.
+
+Moving on to the other question, the issue with using the `keys` method is that it blocks the execution of the code while it searches for the keys, why? Because it gets all the keys at once, and if there are a lot, well, let's wait for it to end. So what you're doing is using PHP to operate over Redis records, that is, you're using a programming language to search between all the records of a database, instead of using the database itself to do this process. That will clearly be slower, and even more if we remember that PHP isn't a language designed for high performance applications and large volumes of data. So, what's the right approach?
+
+In order to get Redis to do all the job instead of PHP, we have to use the `scan` method, which as its name mentions, scans the records and uses a **`cursor`** to have a reference of the last position where it searched for and that way it goes little by little, incrementally, moving between the keys. In other words, instead of obtaining all the keys at once, it gets a few of them and keeps looking. The same example, using `scan`, would look like this:
+
+```php
+use Illuminate\Support\Facades\Redis;
+
+$redis = Redis::connection('cache'); // Store the connection in a variable so as not to open multiple connections
+$prefix = config('database.redis.options.prefix');
+
+$cursor = null; // This is fundamental so as the scan method can loop through the records at least once
+$pattern = "{$prefix}*"; // Important to include the prefix
+
+$found_keys = [];
+
+do {
+    $response = $redis->scan($cursor, [
+        'match' => $pattern,
+        'count' => 300 // Adjust according to the maximum size of keys needed
+    ]);
+
+    if ($response === false) {
+        break;
+    }
+
+    $cursor = $response[0];
+    $results = $response[1];
+
+    $found_keys = array_merge($found_keys, $results);
+} while ($cursor !== 0); // The rule of the scan method is that it returns false once the cursor is 0
+
+// Get the values
+foreach ($found_keys as $found_key) {
+  $value = $redis->get($found_key);
+  // Do something with the value
+}
+```
+
+As a bonus, let's say that we want to look for all the keys that start with `test`. For this, the pattern would simply be:
+
+```php
+$pattern = "{$prefix}test*";
+```
+
+It's important to note the use of the asterisk because otherwise we would be searching for `test` exactly, and if it wasn't clear already, we must never use the `keys` method in production environments, we must always use `scan`. You can, of course, use `keys` locally, since it's easier to implement and you don't have much data nor a server on which the users depend, but when in production, the use of `scan` is mandatory.
+
+## Delete the keys using the scan method
+
+Another common situation is that we need to search for the keys that match a pattern and then delete them. For this, the `del` method is available, which allows us to delete several keys at once, that is, the direct result of the `scan` method after each iteration. But here's a little detail, which took me hours to figure out at its time and this is my chance to say "You're welcome" so you don't lose your time too. For a reason unknown to me, the `del` method doesn't work if the keys include the prefix, so it must be deleted. By adjusting the previous example to remove the keys on each iteration, we have the following:
+
+```php
+use Illuminate\Support\Facades\Redis;
+
+$redis = Redis::connection('cache');
+$prefix = config('database.redis.options.prefix');
+
+$cursor = null;
+$pattern = "{$prefix}*";
+
+$found_keys = [];
+
+do {
+    $response = $redis->scan($cursor, [
+        'match' => $pattern,
+        'count' => 300
+    ]);
+
+    if ($response === false) {
+        break;
+    }
+
+    $cursor = $response[0];
+    $results = $response[1];
+
+    // Delete the keys prefix (otherwise, they won't get deleted)
+    $results = array_map(function ($key) use ($prefix) {
+        return str_replace($prefix, '', $key);
+    }, $results);
+
+    if (count($results) > 0) {
+        // Delete the keys found
+        $redis->del($results);
+    }
+} while ($cursor !== 0);
+```
+
+## Conclusion
+
+Redis is a highly powerful in-memory database that can help us to implement caching mechanisms in our applications. By using it the right way, it can help to reduce response times by providing cached content instead of having to look for it in another database.
+
+I hope you find this article useful and if you have questions or want to share something, leave it in the comments :)

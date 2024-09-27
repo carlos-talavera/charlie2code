@@ -1,0 +1,330 @@
+---
+title: "Integración de Laravel Sanctum con SSR en Next.js: Puntos Clave"
+date: '2024/09/24'
+lastmod: '2024/09/24'
+language: es
+tags: ['laravel', 'php', 'javascript', 'typescript', 'nextjs', 'fullstack']
+authors: ['default']
+draft: false
+featured: false
+summary: En este artículo veremos los puntos clave para manejar el proceso de autenticación con Laravel Sanctum al utilizar SSR en Next.js.
+---
+
+## Introducción
+
+[Next.js](https://nextjs.org) es un framework de [React](https://react.dev) que ha ganado popularidad en los últimos años por su enfoque práctico para manejar las rutas, el soporte para SEO, los mecanismos de caché para las peticiones y las diferentes estrategias de renderizado que provee. En pocas palabras, al soportar el uso de un servidor, permite obtener información en el servidor en lugar de obtenerla en el cliente (el navegador, por ejemplo). Esto permite disminuir los tiempos de respuesta, ya que una vez que el usuario puede ver la interfaz los datos ya están disponibles, contrario a tener que esperar a que la información se obtenga después de que la interfaz es visible. Esto se conoce como _Server Side Rendering_, o abreviado, [SSR](https://nextjs.org/docs/app/building-your-application/rendering).
+
+Por su parte, [Laravel Sanctum](https://laravel.com/docs/11.x/sanctum) provee una forma sencilla de autenticar aplicaciones que consuman una API desarrollada en Laravel. Existen dos métodos de autenticación: utilizar `cookies` de sesión o `tokens` de API. El primer enfoque tal vez no es tan conocido. Se basa en almacenar cookies en el navegador que son enviadas en cada petición y verificadas por la API, por lo que solo funciona para aplicaciones web, donde haya un navegador. El segundo sí que es conocido. Se le asigna un token al usuario y mientras este token se incluya en las cabeceras de la petición, el usuario estará autenticado.
+
+En este artículo exploraremos la autenticación utilizando cookies, ya que es aquí donde surgen los problemas al intentar hacer peticiones desde el servidor en lugar de desde el cliente. Además, hay que aprovechar que este método protege contra ataques [CSRF](https://owasp.org/www-community/attacks/csrf), lo cual es imposible utilizando tokens de API.
+
+> Este artículo habla sobre los puntos clave, se presentan algunos detalles, pero es puramente conceptual. Al final se coloca un enlace de un repositorio de GitHub con la implementación detallada
+
+<TOCInline toc={props.toc} exclude="Introducción" locale={props.locale} asDisclosure />
+
+## El problema
+
+Cuando se hacen peticiones cliente-servidor las cookies del navegador se envían automáticamente. Además, si en la respuesta hay cookies, simplemente se guardan en el navegador sin que haya que intervenir. Sin embargo, al hacer una petición servidor-servidor, las cookies no existen como tal, porque las cookies son un concepto del navegador, el servidor no sabe de ellas. Así que si se quiere realizar una petición desde el servidor incluyendo las cookies, es necesario solicitarlas al navegador y enviarlas explícitamente en la cabecera `Cookie`. Veremos cómo hacer esto en la sección de Next.js.
+
+## Laravel
+
+Es posible instalar Sanctum y agregar las configuraciones necesarias, sin embargo, eso toma tiempo y por esto mismo, Laravel nos brinda [Breeze](https://laravel.com/docs/11.x/starter-kits#laravel-breeze). Breeze crea todo el esqueleto que necesitamos para poder autenticarnos. Incluye rutas para iniciar y cerrar sesión, registrarse, verificar email y restablecer contraseña.
+
+Además agrega la configuración necesaria de CORS y Sanctum para que podamos enfocarnos en comenzar a desarrollar nuestra aplicación. Al seguir los pasos de instalación del enlace anterior, hay una parte donde nos pedirá el tipo de aplicación con la que queremos utilizar Breeze. Seleccionaremos la opción de `API` para que solo proporcione lo necesario para conectarnos desde Next.js.
+
+### Crear UserResource
+
+Hay que crear un `UserResource` para devolver la información de los usuarios de forma estandarizada. Se crea el `resource` primero:
+
+```bash
+php artisan make:resource UserResource
+```
+
+Luego se especifican los campos de la siguiente manera:
+
+```php
+/**
+ * Transform the resource into an array.
+ *
+ * @return array<string, mixed>
+ */
+public function toArray(Request $request): array
+{
+    return [
+        'id' => $this->id,
+        'name' => $this->name,
+        'email' => $this->email,
+        'emailVerifiedAt' => $this->email_verified_at,
+        // Usar camelCase para que coincida con la convención de nombres en JavaScript
+    ];
+}
+```
+
+### Devolver usuario autenticado al iniciar sesión y registrarse
+
+Hay que modificar el método `store` en `app/Http/Controllers/Auth/AuthenticatedSessionController.php` para devolver el usuario autenticado al iniciar sesión. Lo mismo aplica para el método `store` en `app/Http/Controllers/Auth/RegisteredUserController.php` al registrar un usuario.
+
+```php
+// app/Http/Controllers/Auth/AuthenticatedSessionController.php
+/**
+ * Handle an incoming authentication request.
+ */
+public function store(LoginRequest $request)
+{
+    $request->authenticate();
+
+    $request->session()->regenerate();
+
+    return UserResource::make(Auth::user());
+}
+```
+
+```php
+// app/Http/Controllers/Auth/RegisteredUserController.php
+/**
+ * Handle an incoming registration request.
+ *
+ * @throws \Illuminate\Validation\ValidationException
+ */
+public function store(Request $request)
+{
+    $request->validate([
+        'name' => ['required', 'string', 'max:255'],
+        'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:'.User::class],
+        'password' => ['required', 'confirmed', Rules\Password::defaults()],
+    ]);
+
+    $user = User::create([
+        'name' => $request->name,
+        'email' => $request->email,
+        'password' => Hash::make($request->string('password')),
+    ]);
+
+    event(new Registered($user));
+
+    Auth::login($user);
+
+    return UserResource::make(Auth::user());
+}
+```
+
+En la sección de Next.js veremos por qué es necesario hacer esto.
+
+### CORS
+
+Breeze agregará una variable de entorno `FRONTEND_URL` que contendrá la dirección de nuestra aplicación de Next.js, la cual por defecto se ejecuta en `http://localhost:3000`. Para poder compartir cookies, también es importante que exista el soporte de credenciales. Por lo tanto, la configuración de CORS debe verse así:
+
+```php
+// config/cors.php
+'paths' => ['*'],
+
+'allowed_methods' => ['*'],
+
+'allowed_origins' => [env('FRONTEND_URL', 'http://localhost:3000')],
+
+'allowed_origins_patterns' => [],
+
+'allowed_headers' => ['*'],
+
+'exposed_headers' => [],
+
+'max_age' => 0,
+
+'supports_credentials' => true
+```
+
+### Dominio de sesión
+
+Las cookies de sesión solo pueden ser compartidas entre subdominos que existan en el mismo dominio. En el caso de una aplicación local, al no existir subdominios a menos que utilicemos algún `reverse proxy`, se accede a las aplicaciones por medio de `localhost:{{PUERTO}}`. Por lo tanto, debemos asegurarnos que el dominio de la sesión sea `localhost` o `127.0.0.1` (usar la IP o el alias `localhost` puede o no funcionar dependiendo del sistema operativo y la configuración de los hosts).
+
+```ini
+SESSION_DOMAIN=localhost
+```
+
+En producción, es importante utilizar un punto antes del dominio para que todos los subdominios sean permitidos. Por ejemplo:
+
+```ini
+SESSION_DOMAIN=.example.com
+```
+
+### Dominios de Sanctum
+
+Los dominios de Sanctum son las direcciones o hosts desde los que está permitido acceder a las sesiones creadas por este medio. Breeze también se encargará de agregar `FRONTEND_URL` a la lista de dominios. La configuración se ve de esta forma:
+
+```php
+// config/sanctum.php
+'stateful' => explode(',', env('SANCTUM_STATEFUL_DOMAINS', sprintf(
+    '%s%s%s',
+    'localhost,localhost:3000,127.0.0.1,127.0.0.1:8000,::1',
+    Sanctum::currentApplicationUrlWithPort(),
+    env('FRONTEND_URL') ? ','.parse_url(env('FRONTEND_URL'), PHP_URL_HOST) : ''
+))),
+```
+
+El motivo de utilizar `parse_url` es eliminar el protocolo `http` o `https` de la URL del frontend, ya que un dominio es solo el alias de una dirección, sin incluir el protocolo de comunicación. `parse_url(env('FRONTEND_URL'), PHP_URL_HOST)` se puede leer de esta forma: "Toma esta URL, `FRONTEND_URL`, y solo quédate con el componente `PHP_URL_HOST`, que es el host o la dirección de la URL". Este proceso es necesario ya que `FRONTEND_URL` debe incluir el protocolo porque así lo requiere la configuración de CORS.
+
+En producción, es recomendable eliminar todos los dominios locales (`localhost`, `127.0.0.1`), porque solo debería ser posible autenticarse desde direcciones no locales.
+
+## Next.js
+
+> **Nota:** se utiliza el [App Router](https://nextjs.org/docs/app).
+
+Aquí viene lo divertido.
+
+### Variables de entorno
+
+Inicialmente, solo se necesita la URL del backend. Llamaremos a esta variable `NEXT_PUBLIC_BACKEND_URL`. Se agrega el prefijo `NEXT_PUBLIC` para que la variable esté disponible en componentes de cliente, aunque también se usará en el servidor.
+
+```ini
+# .env
+NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
+```
+
+No hay que olvidar el protocolo `http` porque de lo contrario se entenderá que la URL es relativa al proyecto del frontend (como si fuera una subcarpeta), y no funcionará.
+
+### Definición de constantes
+
+Se definen varias constantes utilizadas en distintas partes de la aplicación para rutas y parámetros de URLs que permitan determinar qué hacer.
+
+```ts
+// lib/constants/index.ts
+export const LOGIN_ROUTE = "/login";
+
+// Sesión expirada
+export const EXPIRED_SESSION_PARAM = "expired_session";
+export const EXPIRED_SESSION_ROUTE = `${LOGIN_ROUTE}?${EXPIRED_SESSION_PARAM}`;
+```
+
+### Configuración de axios
+
+Me parece práctico utilizar `axios` por la facilidad que brinda para crear una instancia con una configuración que tenga una URL base, el soporte para credenciales, el token CSRF y demás propiedades predefinidas, y por los interceptores que serán útiles para manejar errores de autenticación. Esta es la configuración de axios que yo utilizo:
+
+```ts
+// lib/axios.ts
+import { EXPIRED_SESSION_ROUTE, LOGIN_ROUTE } from "@/constants";
+import axios, { AxiosError, AxiosInstance, AxiosResponse } from "axios";
+
+const axiosInstance: AxiosInstance = axios.create({
+  baseURL: process.env.NEXT_PUBLIC_BACKEND_URL,
+  withCredentials: true,
+  withXSRFToken: true,
+  headers: {
+    Accept: "application/json", // * Importante para no recibir respuestas HTML
+    "Content-Type": "application/json",
+    "Cache-Control": "no-cache", // "No usar contenido cacheado sin validación del servidor"
+  }
+});
+
+// Agregar un interceptor para redirigir a la página de login si el servidor responde con un 401 (no autenticado)
+clientAxiosInstance.interceptors.response.use(
+  (response: AxiosResponse) => response,
+  (error: AxiosError) => {
+
+    if (error.response?.status === 401) {
+      if (typeof window !== "undefined" && window.location.pathname !== LOGIN_ROUTE) {
+        // Estamos en el lado del cliente
+        // Importante prevenir ciclos infinitos de redirección checando si la ruta actual no es "/login"
+        // Las redirecciones del lado del servidor deberían ser manejadas por una clase ServerSideRequestsManager
+        window.location.href = EXPIRED_SESSION_ROUTE;
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
+export default axiosInstance;
+```
+
+¿Cuándo ocurre un error `401 Unauthorized`? Cuando el token CSRF es válido, pero la sesión ya ha expirado, <mark>o el dominio no está permitido por Sanctum</mark>. El parámetro de sesión expirada servirá para identificar si es necesario expirar la sesión en el middleware. De este modo no se tiene que crear una nueva ruta para lograr esto.
+
+### Manejo de sesión en cliente y servidor
+
+Aquí hay dos partes: tener la información disponible del usuario en componentes de cliente y servidor, y saber si el usuario está autenticado.
+
+Para lo primero, es necesario crear nuestra propia cookie, ya que las cookies que provee Laravel no garantizan una sesión válida porque pueden existir simplemente por hacer una petición a la API. Esta cookie debería ser `HttpOnly` por temas de seguridad, de modo que se acceda a ella desde el cliente a través de un [API Route Handler](https://nextjs.org/docs/app/building-your-application/routing/route-handlers) y desde el servidor se puede acceder directamente a través del método `cookies` que Next.js brinda. Del lado del cliente, se preservará la información del usuario autenticado utilizando un estado global a través del contexto de React.
+
+Esta cookie contendrá la información del usuario autenticado en un JSON Web Token (`JWT`) que será creado a través de una librería que sea compatible con el `edge runtime` que Next.js utiliza en el middleware, pues si se intenta acceder a la información del usuario desde el middleware y esa librería utiliza una API no disponible en ese entorno de ejecución, ocurrirá un error. La librería [jose](https://www.npmjs.com/package/jose) es una excelente opción para este propósito. El `secret` para encriptar y desencriptar el JWT debería estar en una variable de entorno. For example:
+
+```ini
+JWT_SECRET=clave_super_secreta
+```
+
+Sin incluir `NEXT_PUBLIC` porque solo es necesaria del lado del servidor. Para la segunda parte, saber si el usuario está autenticado, simplemente es necesario revisar en el middleware si la cookie existe y validar su contenido por medio de la librería utilizada para generar el JWT. Si se implementa Role-Based Access Control (`RBAC`), entonces el usuario debería incluir el rol y deberíamos utilizarlo para determinar a dónde redirigirlo. 
+
+### Obtención de cookies de Sanctum
+
+Es importante que antes de iniciar sesión se obtengan las cookies de Sanctum a través de realizar una petición `GET` a la ruta `/sanctum/csrf-cookie`, como lo menciona la [documentación](https://laravel.com/docs/11.x/sanctum#spa-authenticating). Si no se realiza este proceso, se obtendrá siempre un error `419 Unknown status` con el mensaje "CSRF token mismatch". Después de iniciar sesión, hay que hacer una petición a `/api/user` para obtener la información del usuario autenticado y las nuevas cookies que representen la sesión con el usuario ya autenticado. Esto siempre aplica cuando se quiera renovar una sesión. De lo contrario, se obtendrá un error `401 Unauthorized`.
+
+### Inicio de sesión
+
+El proceso de inicio de sesión es el siguiente:
+
+- Obtener las cookies de Sanctum
+- Iniciar sesión en Laravel
+- Utilizar el usuario autenticado para generar la cookie con el JWT (por esto necesitamos que Laravel devuelva los datos del usuario)
+- Registrar el usuario en el estado global
+- Redirigir a la página de inicio
+
+### Cierre de sesión manual
+
+Si el usuario cierra sesión voluntariamente, entonces:
+
+- Cerrar sesión en Laravel
+- Eliminar la cookie con el JWT (expirarla)
+- Limpiar el estado global (establecer como `null` o `undefined` al usuario)
+- Redirigir a la página de inicio de sesión
+
+### Realizar peticiones desde el servidor
+
+Esta es, a mi parecer, la sección más importante, ya que el secreto de peticiones exitosas se encuentra en las cabeceras de la petición. Para realizar peticiones en el servidor, sin importar de qué tipo sea, es fundamental enviar tres cabeceras: `Referer`, `Cookie` y `X-XSRF-TOKEN`. La primera, que es el origen de la petición, debe ser la URL del frontend. Esto es muy importante porque de esta forma se utiliza un dominio permitido por Sanctum y evitaremos obtener el error `401 Unauthorized`. Por lo tanto, debería haber otra variable de entorno, que solo se usará en el servidor, llamada `FRONTEND_URL`:
+
+```ini
+FRONTEND_URL=http://localhost:3000
+```
+
+Para la segunda cabecera deben recuperarse las cookies y convertirlas a una cadena de texto. No incluir las cookies es lo mismo a no tener una sesión, así que obtendremos el mismo error `401 Unauthorized` si no las incluimos.
+
+La tercera es para especificar el token CSRF como se hace en las peticiones desde el cliente. Para obtener este valor simplemente se accede a la cookie `XSRF-TOKEN`. Usando axios, el ejemplo para una petición `GET` debería verse así:
+
+```ts
+import { cookies } from "next/headers";
+import axiosInstance from "@/lib/axios";
+
+const headers = {
+  Referer: process.env.FRONTEND_URL,
+  Cookie: cookies().toString(),
+  "X-XSRF-TOKEN": cookies().get("XSRF-TOKEN")?.value as string
+};
+
+const response = await axiosInstance.get(url, { headers });
+```
+
+### Realizar peticiones desde el cliente
+
+Lo recomendable es que para las mutaciones se utilicen [Server Actions](https://nextjs.org/docs/app/building-your-application/data-fetching/server-actions-and-mutations) que realicen la misma lógica que se realizaría del lado del servidor. Para la obtención de información pueden utilizarse funciones auxiliares.
+
+### Establecer cookies al realizar peticiones desde el servidor
+
+Originalmente, las cookies de Sanctum se actualizan tras cada petición del lado del cliente, de forma que la sesión se mantiene válida. Sin embargo, en el servidor, las cookies no se colocan _mágicamente_ tras recibir cada respuesta. Esto podría lograrse si cada respuesta en el servidor fuera una `NextResponse` que incluyera esta información.
+
+No obstante, esta opción es difícil de implementar por dos motivos: no se puede tipar una `NextResponse` directamente, solo se puede utilizar una guardia de tipo que funcione en tiempo de ejecución; una `NextResponse` representa la respuesta del servidor, así que todo lo que esté después de que se reciba la `NextResponse` sería ignorado y no se renderizaría nada más que el contenido de esta respuesta. Manejar estas sutilezas le agrega complejidad a los componentes de servidor.
+
+Por lo tanto, una opción sencilla es tener un componente de cliente `SetCookies` que tenga un `input` oculto que se encargue de hacer una petición a la ruta `/api/user` de Next.js, que a su vez se encargue de hacer una petición a la ruta `/api/user` de Laravel. La respuesta de Laravel la recibirá el `API Route Handler` de Next.js y la respuesta de esta ruta al llegar al componente `SetCookies` establecerá las cookies en el navegador porque es un componente de cliente. Este componente debe estar presente en todas las rutas donde se necesite renovar las cookies, por lo que colocarlo en el encabezado de la página o un _layout_ común es lo mejor.
+
+Podrían pasarse las cookies de la respuesta del servidor en un objeto al componente `SetCookies` y establecerlas en el navegador y evitar una petición extra, sin embargo, esto no permitiría actualizar cookies `HttpOnly` en caso de que existan.
+
+### Manejo de errores en el servidor
+
+Dos errores comunes serán el error `401 Unauthorized` y el `419 Unknown content`. Cuando ocurra el primero, es necesario redirigir a la ruta de sesión expirada, que se encargará de expirar la cookie con el JWT desde el middleware y redirigir a la página de inicio de sesión. En este proceso hay que tener cuidado de eliminar el parámetro de sesión expirada para no causar un ciclo infinito de redirección en el middleware. Para el segundo error, se debe reintentar la petición después de renovar las cookies siguiendo el mismo proceso que se realiza al establecer las cookies después de una petición del lado del servidor. Después de esto, puede ocurrir cualquier otro error, pero ya no el mismo.
+
+En los componentes de servidor encargados de obtener los datos y renderizarlos, debe haber un componente que se encargue de mostrar el error. Por este motivo, y en general para un manejo de errores adecuado, es importante estandarizar las respuestas de la API de Laravel para poder crear métodos y componentes genéricos que realicen las peticiones y muestren el contenido que corresponda. A este proceso de estandarizar se le conoce como **serializar**, por lo tanto, esta respuesta sería **serializable**.
+
+## Enlace al repositorio de GitHub
+
+La implementación detallada con un ejemplo de una página que obtiene todos los usuarios paginados y el resto de páginas que provee Breeze, se puede encontrar [aquí](https://github.com/carlos-talavera/nextjs-laravel-breeze).
+
+## Conclusión
+
+Integrar Laravel Sanctum con SSR en Next.js no es tarea fácil al principio. Hay muchas sutilezas y problemas que encontré cuando estaba desarrollando un proyecto que tenía estos requerimientos y que no encontré cómo resolver en ningún lugar, ni en el propio [ejemplo oficial](https://github.com/laravel/breeze-next) de Laravel Breeze con Next.js. Sin embargo, con los conceptos importantes y entendiendo el papel de cada una de las partes involucradas, esta integración puede simplificarse bastante y combinar lo mejor de ambos mundos.
+
+Espero que con estos puntos clave y el repositorio que contiene el ejemplo, puedas conseguirlo. Si tienes dudas o quieres compartir algo, déjalo en los comentarios :)

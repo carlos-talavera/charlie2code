@@ -1,0 +1,313 @@
+---
+title: "Uso de Redis para Caché en Laravel: Guía Paso a Paso"
+date: '2024/09/22'
+lastmod: '2024/09/22'
+language: es
+tags: ['laravel', 'php', 'redis', 'backend']
+authors: ['default']
+draft: false
+featured: false
+summary: Veamos cómo configurar Redis para caché en una aplicación de Laravel y consejos para manejar la caché eficientemente.
+---
+
+## Introducción
+
+[Laravel](https://laravel.com) es, sin temor a equivocarme, el framework más popular de PHP, y de los más populares dentro del desarrollo web. Por su parte, [Redis](https://redis.io) es una base de datos en memoria ampliamente utilizada para almacenamiento en caché debido a que la información es almacenada en pares clave-valor, lo que facilita su gestión. En este artículo veremos cómo configurar Redis en una aplicación de Laravel y qué consideraciones tener al manejar las claves de la caché.
+
+<TOCInline toc={props.toc} exclude="Introducción" locale={props.locale} asDisclosure />
+
+## Prerrequisitos
+
+Asegúrate de que Redis esté instalado en tu computadora. Puedes utilizar la [imagen oficial de Docker](https://hub.docker.com/_/redis), o instalarlo directamente en [Windows](https://redis.io/docs/latest/operate/oss_and_stack/install/install-redis/install-redis-on-windows/), [MacOS](https://redis.io/docs/latest/operate/oss_and_stack/install/install-redis/install-redis-on-mac-os/) o [Linux](https://redis.io/docs/latest/operate/oss_and_stack/install/install-redis/install-redis-on-linux/). En el caso de Linux, varía de distribución a distribución, sin embargo, lo común es que esté disponible a través del gestor de paquetes del sistema operativo, usualmente bajo el nombre de `redis` o `redis-cli`. Tras confirmar que se encuentra instalado y la conexión funciona, veamos cómo configurarlo en Laravel.
+
+## Instalación de Redis en Laravel
+
+Hasta ahora simplemente hemos instalado el servidor de Redis en nuestra computadora, pero necesitamos tener una forma de conectarnos desde una aplicación de PHP. Para esto existen dos opciones, utilizar [phpredis](https://github.com/phpredis/phpredis), una extensión de PHP, o [predis](https://github.com/predis/predis), una librería. Ninguna es mejor que otra, solo tienen diferentes objetivos y alcances. `phpredis` tiene la ventaja de que permite la conexión con Redis desde cualquier proyecto de PHP que se ejecute en esa computadora, mientras que `predis`, al ser una librería, solo permite conectarse desde los proyectos donde esté instalada. En mi caso, tengo experiencia con `phpredis`, así que veamos cómo se instala.
+
+### Instalación de phpredis
+
+La guía de instalación para diferentes sistemas operativos se encuentra [aquí](https://github.com/phpredis/phpredis/blob/develop/INSTALL.md). Una vez más, en Linux, si no se encuentra tu distribución en la guía, mi recomendación es buscar en la documentación de tu distribución el proceso de instalación. Este proceso suele ser instalar el paquete utilizando el gestor de paquetes y descomentar la extensión o extensiones en los archivos de configuración de PHP.
+
+### Configuración en Laravel
+
+Lo primero que hay que hacer es asegurarnos de que la configuración de Redis en `config/database.php` sea la adecuada. Debe verse así:
+
+```php
+// config/database.php
+'redis' => [
+  'client' => env('REDIS_CLIENT', 'phpredis'),
+
+  'options' => [
+      'cluster' => env('REDIS_CLUSTER', 'redis'),
+      'prefix' => env('REDIS_PREFIX', Str::slug(env('APP_NAME', 'laravel'), '_').'_database_'),
+  ],
+
+  'default' => [
+      'url' => env('REDIS_URL'),
+      'host' => env('REDIS_HOST', '127.0.0.1'),
+      'username' => env('REDIS_USERNAME'),
+      'password' => env('REDIS_PASSWORD'),
+      'port' => env('REDIS_PORT', '6379'),
+      'database' => env('REDIS_DB', '0'),
+  ],
+
+  'cache' => [
+      'url' => env('REDIS_URL'),
+      'host' => env('REDIS_HOST', '127.0.0.1'),
+      'username' => env('REDIS_USERNAME'),
+      'password' => env('REDIS_PASSWORD'),
+      'port' => env('REDIS_PORT', '6379'),
+      'database' => env('REDIS_CACHE_DB', '1'),
+  ]
+]
+```
+
+Después hay que establecer las variables de entorno necesarias para utilizar Redis como caché y conectarnos. Aquí se asume que se utiliza `phpredis`, que Redis está instalado localmente y no en un contenedor de Docker, que dejaste el puerto por defecto al instalar Redis, y que no configuraste ninguna contraseña:
+
+```ini
+# .env
+CACHE_STORE=redis
+CACHE_PREFIX=laravel_cache
+
+REDIS_CLIENT=phpredis
+# Para Docker, usar el nombre del servicio
+REDIS_HOST=127.0.0.1
+REDIS_PASSWORD=null
+REDIS_PORT=6379
+
+REDIS_DB=0
+REDIS_CACHE_DB=1
+```
+
+`REDIS_URL` se utiliza cuando en una sola URL se quiere especificar la conexión, por ejemplo, `tcp://127.0.0.1:6379?database=0`. De lo contrario, es necesario especificar el resto de los campos para que al final Laravel forme esta URL y se conecte. Es decir, solo se usa una u otra forma, no ambas. Por otro lado, el prefijo de la caché es importante porque habrá que utilizarlo al buscar claves. En el caso de `REDIS_DB` y `REDIS_CACHE_DB`, es solo una forma de separar las bases de datos dependiendo del propósito. La primera es la que se utiliza por defecto si se utiliza Redis sin especificar la base de datos, mientras que la segunda se encarga solo de la caché.
+
+## Uso de Redis en Laravel
+
+Una vez que la configuración está lista, es hora de utilizar Redis en nuestra aplicación. Laravel proporciona una clase ` Illuminate\Support\Facades\Cache` como parte de sus `facades` para realizar todo tipo de operaciones (por si no sabías, _facade_ es "fachada", y es un [patrón de diseño](https://refactoring.guru/design-patterns/facade)). Es importante notar que al utilizar estos métodos, no es necesario utilizar el prefijo de Redis, ya que Laravel lo coloca automáticamente. A continuación se presentan los métodos básicos.
+
+### Obtener un elemento
+
+```php
+use Illuminate\Support\Facades\Cache;
+
+Cache::get('clave'); // valor o null
+```
+
+### Checar si una clave existe
+
+```php
+use Illuminate\Support\Facades\Cache;
+
+if (Cache::has('clave')) {
+  // hacer algo
+}
+```
+
+### Agregar o sobreescribir un elemento
+
+El método `put` agrega o sobreescribe un elemento de la caché, es decir, si no existe lo crea, y si existe lo actualiza.
+
+```php
+use Illuminate\Support\Facades\Cache;
+
+$minutos = 60; // 1 hora
+Cache::put('clave', 'valor', $minutos);
+```
+
+Como se ve arriba, se puede especificar el tiempo en minutos. Si no se especifica, el elemento persistirá hasta que se elimine explícitamente.
+
+### Agregar varios elementos
+
+```php
+use Illuminate\Support\Facades\Cache;
+
+$minutos = 60; // 1 hora
+Cache::putMany([
+    'clave1' => 'valor1',
+    'clave2' => 'valor2'
+], $minutos);
+```
+
+Similar a `put`, con la diferencia de que se guardan múltiples elementos a la vez.
+
+### Agregar un elemento si no existe
+
+```php
+use Illuminate\Support\Facades\Cache;
+
+$minutos = 60; // 1 hora
+Cache::add('clave', 'valor', $minutos);
+```
+
+Similar a `put`, con la diferencia de que `add` solo agrega un elemento que no existe, no sobreescribe el anterior si es que lo hay.
+
+### Eliminar un elemento
+
+```php
+use Illuminate\Support\Facades\Cache;
+
+Cache::forget('clave');
+```
+
+### Limpiar la caché
+
+```php
+use Illuminate\Support\Facades\Cache;
+
+Cache::flush();
+```
+
+Este método elimina todos los elementos de la caché, así que hay que utilizarlo con precaución.
+
+### Obtener o agregar un elemento por un tiempo determinado si no existe
+
+El método `remember` sirve para cuando se necesita obtener o agregar un elemento a la caché por un tiempo determinado si es que todavía no existe, es decir, no sobreescribe y funciona como `add`. Además de esto, su propósito es que al utilizar un `closure`, se pueden realizar operaciones complejas dentro de la función para determinar el valor a obtener o agregar.
+
+```php
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+
+$minutos = 60; // 1 hora
+$valor = Cache::remember('clave', $minutos, function () {
+    return DB::table('users')->get();
+});
+```
+
+### Obtener o agregar un elemento si no existe
+
+```php
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+
+$valor = Cache::rememberForever('clave', function () {
+    return DB::table('users')->get();
+});
+```
+
+Similar a `remember`, con la diferencia de que aquí no se especifica el tiempo y el elemento persiste hasta que se elimine explícitamente.
+
+### Obtener un elemento y eliminarlo después
+
+```php
+use Illuminate\Support\Facades\Cache;
+
+$valor = Cache::pull('clave');
+```
+
+Este método obtiene el valor asociado a la clave, lo almacena en la variable `$valor` y elimina el elemento de la caché. Claramente, hay que usarlo con cuidado y siempre asignarlo a una variable para no perder la información. Puedes encontrar más métodos en la [documentación oficial](https://laravel.com/docs/11.x/cache).
+
+## Ejemplo de búsqueda de un patrón
+
+Una situación común es que necesitamos buscar todas las claves que coincidan con un patrón, que contengan cierta expresión. Para esto, ya no se usa el _facade_ de `Cache`, sino que se utiliza directamente el de `Redis`, que proporciona métodos más avanzados como los que existen al interactuar directamente con el servidor de Redis. Bajo la sintaxis de Redis, un asterisco `*` significa "todos". Así que, por ejemplo, si queremos obtener todas las claves, el patrón sería simplemente `*`. Algunos _**malos**_ ejemplos recomendarían realizar lo siguiente:
+
+```php
+use Illuminate\Support\Facades\Redis;
+
+$claves_encontradas = Redis::keys('*');
+```
+
+Esto nos devolvería un arreglo con todas las claves encontradas. Si quisiéramos obtener los valores tendríamos que iterar sobre este arreglo y obtener cada valor utilizando la misma _facade_ de Redis, de la siguiente manera:
+
+```php
+use Illuminate\Support\Facades\Redis;
+
+$claves_encontradas = Redis::keys('*');
+
+// Obtener los valores
+foreach ($claves_encontradas as $clave_encontrada) {
+  $valor = Redis::get($clave_encontrada);
+  // Hacer algo con el valor
+}
+```
+
+En este momento debes tener dos dudas: por qué es malo hacer esto y por qué se usa `Redis` en lugar de `Cache` para obtener los valores. Lo último es más fácil de responder, así que empezaré por ahí. ¿Recuerdas que mencioné que al usar `Cache` Laravel se encarga de colocar el prefijo automáticamente? Bueno, pues al obtener las claves utilizando `Redis`, estas contienen el prefijo, así que si intentáramos encontrar su valor utilizando `Cache`, no funcionaría, ya que Laravel agrega el prefijo, pero no detecta si ya existe, entonces el resultado sería una clave con el prefijo duplicado.
+
+Pasando a la otra pregunta, el problema que tiene utilizar el método `keys` es que bloquea la ejecución del código mientras busca las claves, ¿por qué? Porque obtiene todas las claves de una vez, y si hay muchas, bueno, a esperar a que termine. Entonces lo que estás haciendo es utilizar PHP para operar sobre los registros de Redis, es decir, estás utilizando un lenguaje de programación para buscar entre todos los registros de una base de datos, en lugar de utilizar la propia base de datos para realizar este proceso. Eso claramente va a ser más lento, y todavía más si recordamos que PHP no es un lenguaje pensado para aplicaciones de alto rendimiento y altos volúmenes de información. Entonces, ¿cuál es el enfoque correcto?
+
+Para hacer que el trabajo lo realice Redis en lugar de PHP, debemos utilizar el método `scan`, que como menciona su nombre, escanea los registros y utiliza un **`cursor`** para tener una referencia de la última posición donde buscó y así ir poco a poco, incrementalmente, avanzando a través de las claves. En otras palabras, en lugar de obtener todas las claves de una vez, obtiene unas cuantas y sigue buscando. El mismo ejemplo, utilizando `scan`, se vería así:
+
+```php
+use Illuminate\Support\Facades\Redis;
+
+$redis = Redis::connection('cache'); // Almacenar la conexión en una variable para no abrir múltiples conexiones
+$prefijo = config('database.redis.options.prefix');
+
+$cursor = null; // Esto es fundamental para que el método scan pueda iterar por lo menos una vez
+$patron = "{$prefijo}*"; // Importante incluir el prefijo
+
+$claves_encontradas = [];
+
+do {
+    $respuesta = $redis->scan($cursor, [
+        'match' => $patron,
+        'count' => 300 // Ajustar según el tamaño máximo que necesitemos de claves
+    ]);
+
+    if ($respuesta === false) {
+        break;
+    }
+
+    $cursor = $respuesta[0];
+    $resultados = $respuesta[1];
+
+    $claves_encontradas = array_merge($claves_encontradas, $resultados);
+} while ($cursor !== 0); // La regla del método scan es que devuelve false una vez que el cursor es 0
+
+// Obtener los valores
+foreach ($claves_encontradas as $clave_encontrada) {
+  $valor = $redis->get($clave_encontrada);
+  // Hacer algo con el valor
+}
+```
+
+Como extra, digamos que queremos buscar todas las claves que comienzan por `prueba`. Para eso, el patrón simplemente sería
+
+```php
+$patron = "{$prefijo}prueba*";
+```
+
+Es importante notar el uso del asterisco porque de lo contrario estaríamos buscando exactamente por `prueba`, y por si no estaba claro, nunca hay que usar el método `keys` en entornos productivos, siempre hay que usar `scan`. Es decir, puedes usar `keys` en local, ya que es más fácil de implementar y no tienes muchos datos ni un servidor del que dependen los usuarios, pero en producción, el uso de `scan` es obligatorio.
+
+## Eliminar claves utilizando el método scan
+
+Otra situación común es que necesitamos buscar claves que coincidan con un patrón para después eliminarlas. Para esto, se tiene disponible el método `del`, que nos permite eliminar varias claves de una sola vez, es decir, el resultado directo del método `scan` tras cada iteración. Pero aquí hay un pequeño detalle, que en su momento tardé horas en descubrir y esta es mi oportunidad de decir "De nada" para que no pierdas tiempo tú también. Por un motivo que desconozco, el método `del` no funciona si las claves incluyen el prefijo, así que hay que eliminarlo. Al ajustar el ejemplo anterior para eliminar las claves en cada iteración, tenemos lo siguiente:
+
+```php
+use Illuminate\Support\Facades\Redis;
+
+$redis = Redis::connection('cache');
+$prefijo = config('database.redis.options.prefix');
+
+$cursor = null;
+$patron = "{$prefijo}*";
+
+do {
+    $respuesta = $redis->scan($cursor, [
+        'match' => $patron,
+        'count' => 300
+    ]);
+
+    if ($respuesta === false) {
+        break;
+    }
+
+    $cursor = $respuesta[0];
+    $resultados = $respuesta[1];
+
+    // Eliminar prefijo de las claves (de lo contrario, no se eliminarán)
+    $resultados = array_map(function ($clave) use ($prefijo) {
+        return str_replace($prefijo, '', $clave);
+    }, $resultados);
+
+    if (count($resultados) > 0) {
+        // Eliminar las claves encontradas
+        $redis->del($resultados);
+    }
+} while ($cursor !== 0);
+```
+
+## Conclusión
+
+Redis es una base de datos en memoria sumamente poderosa que nos puede ayudar a implementar mecanismos de caché en nuestras aplicaciones. Al utilizarse de la manera correcta, puede ayudar a disminuir los tiempos de respuesta al proveer contenido cacheado en lugar de tener que buscarlo en otra base de datos.
+
+Espero que te haya parecido útil y si tienes dudas o quieres compartir algo, déjalo en los comentarios :)

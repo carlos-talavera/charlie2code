@@ -1,0 +1,74 @@
+---
+title: "Generating Laravel Key and Setting Permissions in Docker"
+date: '2024/09/26'
+lastmod: '2024/09/26'
+language: en
+tags: ['docker', 'laravel', 'php', 'backend']
+authors: ['default']
+draft: false
+featured: false
+summary: Two of the most common mistakes when dockerizing a Laravel application are not generating the key and not setting the permissions. In this article, we'll see how to fix it.
+---
+
+## Introduction
+
+When dockerizing a Laravel application, is it common to find errors related to permissions and the lack of an application key. At least that happened to me the first time I did it, and I know it is common because, if it is not mentioned in the documentation, then it is not obvious and can happen to many people. In this brief article, we'll see how to fix it.
+
+<TOCInline toc={props.toc} exclude="Introduction" locale={props.locale} asDisclosure />
+
+## Key generation
+
+Laravel uses an application key that is placed in an `APP_KEY` environment variable for anything to do with encryption, as stated in the [documentation](https://laravel.com/docs/11.x/encryption). This is done by default after installing Laravel, but for some reason it wouldn't occur _automatically_ when using my application's Docker image. Therefore, it is necessary to generate it manually through the following command:
+
+```bash
+php artisan key:generate
+```
+
+This way, it will be set automatically in the `APP_KEY` variable of our `.env` file.
+
+## Setting permissions
+
+When using a [PHP Docker image](https://hub.docker.com/_/php) that in turn uses [PHP-FPM](https://www.php.net/manual/en/install.fpm.php), the `www-data` user and group are provided. Because of this, it is necessary that this user has the required permissions to create files, for example for logs or files that are stored in a Docker volume connected to the Laravel `public` folder. Assuming that the working directory of our application's Docker image is `/var/www`, we need to assign the owner by using the following command:
+
+```bash
+chown -R www-data:www-data /var/www
+```
+
+## Entrypoint file for the Docker image
+
+To simplify this process, a file that acts as `entrypoint` can be placed in the Docker image, so that when the image is mounted in the container, this file is executed. To do this, we create a file `/bin/docker-entrypoint.sh` in our project that will work as entrypoint, then, we have to copy this file in the Dockerfile to the filesystem of the container, make it executable and specify that it will be the entrypoint. The above would look like this at the end of the Dockerfile: 
+
+```Dockerfile
+# Copy the entrypoint file to the working directory
+COPY /bin/docker-entrypoint.sh /usr/local/bin/
+
+# Make the file executable
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Set the entrypoint of the container
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+```
+
+The content of this file will be the key generation, the configuration of permissions, and the creation of a link between the `storage` and the `public` folders (another common mistake, but the title couldn't be that long, right?).
+
+```sh
+#!/bin/sh
+
+# Set permissions
+chown -R www-data:www-data /var/www
+
+# Link storage and public folders
+php artisan storage:link
+
+# Generate application key (--force is needed in production to bypass the confirmation)
+php artisan key:generate --force
+
+# Execute the specified command in the Dockerfile (CMD ["command"])
+exec "$@"
+```
+
+## Conclusion
+
+While these types of errors may seem obvious to more experienced people, to people just starting out in the world of Docker or Laravel they are not. Using a file for the container entrypoint provides a great deal of flexibility and power because all the commands we need when running the container can be placed there, so I strongly recommend to use it when needed.
+
+I hope this helps you in case your application doesn't work properly due to any of these problems. If you have questions or want to share something, leave it in the comments :)
