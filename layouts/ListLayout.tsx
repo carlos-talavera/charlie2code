@@ -13,7 +13,7 @@ import { motion } from 'framer-motion'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { CoreContent } from 'pliny/utils/contentlayer'
 import { formatDate } from 'pliny/utils/formatDate'
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import Pagination from './Pagination'
 
 interface PaginationProps {
@@ -45,11 +45,11 @@ const item = {
   show: { opacity: 1, x: 0, y: 0 },
 }
 
-export default function ListLayoutWithTags({
+const ListLayoutWithTags = ({
   params: { locale },
   posts,
   title
-}: ListLayoutProps) {
+}: ListLayoutProps) => {
   const { t } = useTranslation(locale, 'home')
   const [currentPage, setCurrentPage] = useState(1)
   const [searchValue, setSearchValue] = useState('')
@@ -259,3 +259,21 @@ export default function ListLayoutWithTags({
     </>
   )
 }
+
+const ListLayout = ({
+  params: { locale },
+  posts,
+  title
+}: ListLayoutProps) => {
+  return (
+    <Suspense>
+      <ListLayoutWithTags
+        params={{ locale }}
+        posts={posts}
+        title={title}
+      />
+    </Suspense>
+  )
+}
+
+export default ListLayout;
