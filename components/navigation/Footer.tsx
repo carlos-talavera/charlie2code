@@ -50,6 +50,13 @@ export default function Footer() {
             <div>{` • `}</div>
             <Link href="/">{maintitle[locale]}</Link>
           </div>
+          <div className="mb-2 flex space-x-2 text-sm text-gray-500 dark:text-gray-400">
+            <Link
+              href="https://github.com/carlos-talavera/charlie2code"
+              target='_blank'
+              rel="noopener noreferrer"
+            >{t('viewsource')}</Link>
+          </div>
         </div>
       </footer>
     </>
