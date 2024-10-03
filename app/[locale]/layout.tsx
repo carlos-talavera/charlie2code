@@ -66,6 +66,15 @@ export async function generateMetadata({ params: { locale } }): Promise<Metadata
       card: 'summary_large_image',
       images: [siteMetadata.socialBanner],
     },
+    icons: {
+      icon: siteMetadata.siteLogo,
+      shortcut: siteMetadata.siteLogo,
+      apple: siteMetadata.siteLogo,
+      other: {
+        rel: siteMetadata.siteLogo,
+        url: siteMetadata.siteLogo,
+      },
+    },
   }
 }
 
