@@ -150,6 +150,7 @@ export default async function Page({ params: { slug, locale } }: BlogPageProps) 
       name: author.name,
     }
   })
+  jsonLd['url'] = jsonLd['url'].replace(/\/[^\/]+$/, `/${post.slug}`) // Fix undefined slug
 
   const Layout = layouts[post.layout || defaultLayout]
 
