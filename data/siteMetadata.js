@@ -9,7 +9,7 @@ const siteMetadata = {
   siteUrl: 'https://charlie2code.com',
   siteRepo: 'https://github.com/carlos-talavera/charlie2code',
   siteLogo: '/static/images/logo.svg',
-  socialBanner: '/static/images/twitter-card.png',
+  socialBanner: '/static/images/social-banner.jpg',
   // mastodon: 'https://mastodon.social/@mastodonuser',
   email: 'carlostalavera@charlie2code.com',
   github: 'https://github.com/carlos-talavera',
