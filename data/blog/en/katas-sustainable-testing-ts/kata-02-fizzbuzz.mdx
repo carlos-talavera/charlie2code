@@ -1,0 +1,486 @@
+---
+title: "Kata 02 in TypeScript: FizzBuzz"
+series:
+  order: 2
+  title: "Sustainable Testing Katas in TypeScript"
+date: '2024/10/03'
+lastmod: '2024/10/03'
+language: en
+tags: ['testing', 'tdd', 'javascript', 'typescript']
+authors: ['default']
+draft: false
+featured: false
+summary: In this article of the series "Sustainable Testing Katas in TypeScript", we'll see how to implement the classic FizzBuzz problem using TDD and Jest.
+---
+
+> The katas of this series are proposed exercises in the excelent course [Testing Sostenible con TypeScript](https://academy.softwarecrafters.io/p/curso) by Miguel A. Gómez and Carlos Blé
+
+## Introduction
+
+[FizzBuzz](https://www.enjoyalgorithms.com/blog/fizz-buzz-problem) is a problem which has now become a programming classic because it started to be a common interview question a few years ago. The problem is really simple, we have to create a function that takes a natural number (from $1$ to $n$) and meets the following criteria:
+
+- If a number is divisible by **3**, then it should return `"fizz"`.
+- If a number is divisible by **5**, then it should return `"buzz"`.
+- If a number is divisible by **3** and **5**, then it should return `"fizzbuzz"`.
+- If a number doesn't meet the above criteria, then it should return the number itself converted to string.
+
+In this article we will see how to create a `fizzBuzz` function that meets these criteria using [Jest](https://jestjs.io), [Test Driven Development (TDD)](https://www.codecademy.com/article/tdd-red-green-refactor) and a technique known as `Red-Green-Refactor`.
+
+<TOCInline toc={props.toc} exclude="Introduction" locale={props.locale} asDisclosure />
+
+## Red-Green-Refactor
+
+This technique consists of a three-phase cycle:
+
+- `Red`. We create a test intended to fail, so it will appear in **red** color.
+- `Green`. Once the test fails, we write the minimum necessary implementation for the test to pass. A successful test will appear in **green** color.
+- `Refactor`. Now that we have an implementation that passes the test, it's time to refactor it so that the code is simpler, follows good practices and it's easy to maintain. Clearly, we have to run the test(s) after this process to verify that the implementation is still functional.
+
+These phases are performed in a cycle until all the cases are covered and the tests are successful. This technique arises naturally from the TDD concept, since the development is based on tests, so we create tests first and implementations later.
+
+> Were you expecting a pretty image with the cycle? I'm sorry, but the whole thing of finding royalty-free images isn't an easy task and it's even harder if they are technical
+
+It's worth mentioning that doing this process allows us to have an idea of the structure that the project should have, because in order to do tests we have to ask ourselves **_what_** some part of the system should do. 
+
+## Setting up the environment
+
+I don't know if anyone else has said it, but anyway, **a `package.json` says more than a thousand words**:
+
+```json
+{
+  "name": "ts-eslint-prettier-jest-minimal",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "analize": "npm run lint:fix && npm run compile",
+    "compile": "tsc --noEmit",
+    "compile:watch": "npm run compile -- --watch",
+    "compile:build": "tsc -b",
+    "lint": "eslint . --ext .ts,.tsx",
+    "lint:watch": "esw --color --watch",
+    "lint:fix": "npm run lint -- --fix",
+    "format": "prettier --config .prettierrc '**/*.+(ts|tsx)'",
+    "format:fix": "npm run format -- --write",
+    "test": "jest --verbose",
+    "test:watch": "npm run test -- --watchAll",
+    "test:coverage": "npm run test -- --coverage",
+    "upgrade": "ncu -u"
+  },
+  "author": "Softwarecrafters.io",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "@typescript-eslint/eslint-plugin": "^7.7.0",
+    "@typescript-eslint/parser": "^7.7.0",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-prettier": "^5.1.3",
+    "eslint-watch": "^8.0.0",
+    "husky": "^9.0.11",
+    "jest": "^29.7.0",
+    "lint-staged": "^15.2.2",
+    "npm-check-updates": "^16.14.18",
+    "prettier": "^3.2.5",
+    "ts-jest": "^29.1.2",
+    "typescript": "^5.4.5",
+    "@types/node": "^20.12.7"
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "lint-staged",
+      "pre-push": "npm run test"
+    }
+  },
+  "lint-staged": {
+    "*.+(ts|tsx)": [
+      "npm run lint:fix",
+      "npm run compile",
+      "git add . "
+    ]
+  }
+}
+```
+
+This `package.json` is a good starting point for a project with TypeScript, Jest, [Husky](https://typicode.github.io/husky/), [ESLint](https://eslint.org) and [Prettier](https://prettier.io), courtesy of the course creators. You can find the template [here](https://github.com/softwarecrafters-io/ts-eslint-prettier-jest). As you can see, to run our tests we will use the `npm test` command.
+
+## Applying Red-Green-Refactor
+
+First and foremost, let's create two files: `fizzbuzz.ts`, which will contain the function `fizzBuzz`; and `fizzbuzz.test.ts`, which will contain the tests.
+
+```ts
+// src/core/fizzbuzz.ts
+export function fizzbuzz(number: number) {
+  // implementation goes here
+}
+```
+
+```ts
+// src/tests/fizzbuzz.test.ts
+import {fizzBuzz} from "../core/fizzbuzz";
+```
+
+To group our tests, let's define a suite that contains `"FizzBuzz"` as description.
+
+```ts
+// src/tests/fizzbuzz.test.ts
+describe("FizzBuzz", () => {
+  // tests go here
+});
+```
+
+Applying `Red-Green-Refactor`, in the `Red` phase we have to create a test intended to fail, and then do the minimum implementation to pass the test and then refactor. Let's start with a very simple case: the test for the number `1`. It should return `"1"` because `1` is not divisible by `3` or `5`.
+
+```ts
+// src/tests/fizzbuzz.test.ts
+it("should return 1 for the number 1", () => {
+    const result = fizzBuzz(1);
+    const expected = "1";
+
+    expect(result).toBe(expected);
+});
+```
+
+If we run the tests with `npm test`, they will fail with that expected `Red`, because until now, the function doesn't do anything, or, technically, it returns `undefined`.
+
+![01](/static/images/katas-sustainable-testing-ts/01.png)
+
+Now we move on to the `Green` phase, where we do the minimum implementation so it passes the test, and with minimum I mean worrying only about that, because we only have one case, so we simply return `"1"`.
+
+```ts
+// src/core/fizzbuzz.ts
+export function fizzbuzz(number: number) {
+  return "1";
+}
+```
+
+If we run the tests now, we will get that `Green` we were looking for:
+
+![02](/static/images/katas-sustainable-testing-ts/02.png)
+
+Now we would reach the `Refactor` phase, but up to this point there is nothing to refactor, we can't simplify that `return` any further. So we move on to `Red` again. Now, let's create a test for the number `3`, for which it should return `"fizz"`.
+
+```ts
+// src/tests/fizzbuzz.test.ts
+it("should return 'fizz' for the number 3", () => {
+    const result = fizzBuzz(3);
+    const expected = "fizz";
+
+    expect(result).toBe(expected);
+});
+```
+
+We already know what will happen: the new test will fail. So as not to fill this with redundant images, we know that we will see `Red`. So, now we move on to `Green` and do the minimum implementation, verifying that the function still passes the previous test. To do this, we will simply add a conditional to return `"fizz"` when `number` is `3`. 
+
+```ts
+// src/core/fizzbuzz.ts
+export function fizzBuzz(number: number) {
+    if (number === 3) {
+        return "fizz";
+    }
+
+    return "1";
+}
+```
+
+Here, we will see `Green` when running the tests. In the `Refactor` phase, we wouldn't have to do anything neither, it cannot be simplified any further (generalizations will be made later). We are back to the `Red` phase and this time we create a test for the number `5`, for which it should return `"buzz"`.
+
+```ts
+// src/tests/fizzbuzz.test.ts
+it("should return 'buzz' for the number 5", () => {
+    const result = fizzBuzz(5);
+    const expected = "buzz";
+
+    expect(result).toBe(expected);
+});
+```
+
+After failing the test, now we have to implement the minimum so the function passes it. To do this, we will do the same than with the number `3`, adjusted to the `5` case:
+
+```ts
+// src/tests/fizzbuzz.test.ts
+export function fizzBuzz(number: number) {
+    if (number === 3) {
+        return "fizz";
+    }
+
+    if (number === 5) {
+        return "buzz";
+    }
+
+    return "1";
+}
+```
+
+Now we will see `Green` in the tests. Moving on to the `Refactor` phase, again, there's nothing to do. We reach the `Red` phase again, and now, we will create a test for the number `15`, for which it should return `"fizzbuzz"`.
+
+```ts
+// src/tests/fizzbuzz.test.ts
+it("should return 'fizzbuzz' for the number 15", () => {
+    const result = fizzBuzz(15);
+    const expected = "fizzbuzz";
+
+    expect(result).toBe(expected);
+});
+```
+
+After failing the tests, we move on to `Green`, where we will make an implementation similar to the previous ones:
+
+```ts
+// src/tests/fizzbuzz.test.ts
+export function fizzBuzz(number: number) {
+    if (number === 3) {
+        return "fizz";
+    }
+
+    if (number === 5) {
+        return "buzz";
+    }
+    
+    if (number === 15) {
+        return "fizzbuzz";
+    }
+
+    return "1";
+}
+```
+
+The new test will now pass. One more time, there's nothing to do in `Refactor`. We are in `Red` again, and the test to be done is the first generalization: let's test for the case where it should return `"fizz"` for any number divisible by `3`.
+
+```ts
+// src/tests/fizzbuzz.test.ts
+it("should return 'fizz' for a number divisible by 3", () => {
+    const result = fizzBuzz(6);
+    const expected = "fizz";
+
+    expect(result).toBe(expected);
+});
+```
+
+The test will fail. We move on to `Green` and in the implementation we have to check that if the modulus of the number divided by `3` is `0`, then `"fizz"` should be returned.
+
+```ts
+// src/tests/fizzbuzz.test.ts
+export function fizzBuzz(number: number) {
+    if (number === 3) {
+        return "fizz";
+    }
+
+    if (number === 5) {
+        return "buzz";
+    }
+
+    if (number === 15) {
+        return "fizzbuzz";
+    }
+
+    if (number % 3 === 0) {
+        return "fizz";
+    }
+
+    return "1";
+}
+```
+
+We place the conditional at the end because, otherwise, the test for `15` would fail. If we run the tests, the new test will now pass. Now, we have the novelty that we do have to do something in `Refactor`: delete the conditional that checks for the equality with `3`, because that is now covered by the new conditional.
+
+```ts
+// src/tests/fizzbuzz.test.ts
+export function fizzBuzz(number: number) {
+    if (number === 5) {
+        return "buzz";
+    }
+
+    if (number === 15) {
+        return "fizzbuzz";
+    }
+
+    if (number % 3 === 0) {
+        return "fizz";
+    }
+
+    return "1";
+}
+```
+
+Of course we have to check that the tests still pass. After this, we are back to `Red`. This time, we will create a test for the case where it should return `"buzz"` for any number divisible by `5`.
+
+```ts
+// src/tests/fizzbuzz.test.ts
+it("should return 'buzz' for a number divisible by 5", () => {
+    const result = fizzBuzz(10);
+    const expected = "buzz";
+
+    expect(result).toBe(expected);
+});
+```
+
+The new test will fail. Now we are in `Green`. The implementation is similar to the previous one:
+
+```ts
+// src/tests/fizzbuzz.test.ts
+export function fizzBuzz(number: number) {
+    if (number === 5) {
+        return "buzz";
+    }
+
+    if (number === 15) {
+        return "fizzbuzz";
+    }
+
+    if (number % 3 === 0) {
+        return "fizz";
+    }
+
+    if (number % 5 === 0) {
+        return "buzz";
+    }
+
+    return "1";
+}
+```
+
+Now the test will pass. In a similar way, in the `Refactor` phase we will delete the conditional that checks for the number `5` exactly:
+
+```ts
+// src/tests/fizzbuzz.test.ts
+export function fizzBuzz(number: number) {
+    if (number === 15) {
+        return "fizzbuzz";
+    }
+
+    if (number % 3 === 0) {
+        return "fizz";
+    }
+
+    if (number % 5 === 0) {
+        return "buzz";
+    }
+
+    return "1";
+}
+```
+
+We are back to `Red`. The test that we will create now is for the case where it should return `"fizzbuzz"` for a number divisible by `15`. Why `15`? Because if we recall one of the criteria: _"If a number is divisible by **3** and **5**, then it should return `"fizzbuzz"`"_. This is the same as saying that the number is divisible by $3 \times 5 = 15$.
+
+```ts
+// src/tests/fizzbuzz.test.ts
+it("should return 'fizzbuzz' for a number divisible by 15", () => {
+    const result = fizzBuzz(30);
+    const expected = "fizzbuzz";
+
+    expect(result).toBe(expected);
+});
+```
+
+The test will fail. We move on to the `Green` phase and for the implementation we do something similar to what we did with `3` and `5`.
+
+```ts
+// src/tests/fizzbuzz.test.ts
+export function fizzBuzz(number: number) {
+    if (number === 15) {
+        return "fizzbuzz";
+    }
+
+    if (number % 15 === 0) {
+        return "fizzbuzz";
+    }
+
+    if (number % 3 === 0) {
+        return "fizz";
+    }
+
+    if (number % 5 === 0) {
+        return "buzz";
+    }
+
+    return "1";
+}
+```
+
+We place the conditional above the other two because, if it's divisible by both `3` and `5`, then returning `"fizzbuzz"` should be a priority. Once the tests pass, we move on to the `Refactor` phase, where we will do something similar to what we did with `3` and `5`: delete the conditional that checks for `15` exactly.
+
+```ts
+// src/tests/fizzbuzz.test.ts
+export function fizzBuzz(number: number) {
+    if (number % 15 === 0) {
+        return "fizzbuzz";
+    }
+
+    if (number % 3 === 0) {
+        return "fizz";
+    }
+
+    if (number % 5 === 0) {
+        return "buzz";
+    }
+
+    return "1";
+}
+```
+
+We are back to the `Red` phase to create the last test for the case where it should return the number itself converted to string if none of the previous criteria were met.
+
+```ts
+// src/tests/fizzbuzz.test.ts
+it("should return the string of the number itself for the rest of numbers", () => {
+    const result = fizzBuzz(28);
+    const expected = "28";
+
+    expect(result).toBe(expected);
+});
+```
+
+The test will fail, we will move on to `Green` and we will make the implementation so that instead of `"1"`, it returns the number converted to string when it doesn't meet any of the established criteria.
+
+```ts
+// src/tests/fizzbuzz.test.ts
+export function fizzBuzz(number: number) {
+    if (number % 15 === 0) {
+        return "fizzbuzz";
+    }
+
+    if (number % 3 === 0) {
+        return "fizz";
+    }
+
+    if (number % 5 === 0) {
+        return "buzz";
+    }
+
+    return number.toString();
+}
+```
+
+The new test will now pass. It could be said that refactoring was done here, but in reality it was not, we simply made the implementation with the minimum necessary to pass the test, so something like leaving the `"1"` with a conditional and `number.toString()` as default, would be more than the minimum. Now, in the `Refactor` phase we can improve the function to use an auxiliary function `isDivisibleBy` which takes the divisor and checks if the number is divisible by such divisor. We are left with the following: 
+
+```ts
+// src/tests/fizzbuzz.test.ts
+export function fizzBuzz(number: number) {
+    function isDivisibleBy(divisor: number) {
+        return number % divisor === 0;
+    }
+
+    if (isDivisibleBy(15)) return "fizzbuzz";
+    if (isDivisibleBy(3)) return "fizz";
+    if (isDivisibleBy(5)) return "buzz";
+
+    return number.toString();
+}
+```
+
+This way, we have achieved to create a `fizzBuzz` function that meets the given criteria by simply thinking in tests that it has to pass. We call this little trick **TDD**.
+
+## A small detail
+
+In the introduction it was mentioned that the FizzBuzz problem is for natural numbers, but the function doesn't check for this, there isn't a condition to check that if the number is less than 1, then it should throw an error. The condition could be added and also add a test for that, but in practical terms, we can leave what we have now and for this case it would return the number itself converted to string.
+
+## Link to GitHub repository
+
+You can find this kata, and the rest of them, [here](https://github.com/carlos-talavera/katas-sustainable-testing-ts).
+
+## Conclusion
+
+Sadly, it is common that the development teams don't even do tests in code, or that they are done, but they are not of quality because they don't check for a specific behavior or because they don't actually provide any security to the code. Here we can see that using TDD is simple when well understood, and that the `Red-Green-Refactor` cycle is easy to follow if we are clear about the behavior of what we are testing. From this, I see no excuse for not creating tests in projects. It isn't any holy grail, but well used when needed, TDD can be a powerful ally when it comes to develop software.
+
+I hope this little example has helped you to better understand what it means to develop software with testing first in mind, and that it motivates you to do tests with the same passion with which you do implementations. If you have any question or want to share something, leave it in the comments :)

@@ -1,0 +1,397 @@
+---
+title: "Kata 01 con TypeScript: Librería de Testing"
+series:
+  order: 1
+  title: "Katas Testing Sostenible con TypeScript"
+date: '2024/10/01'
+lastmod: '2024/10/01'
+language: es
+tags: ['testing', 'javascript', 'typescript']
+authors: ['default']
+draft: false
+featured: false
+summary: En este artículo de la serie "Katas Testing Sostenible con TypeScript", veremos cómo crear una simple librería de testing, similar a Jest o Vitest.
+---
+
+> Las katas de esta serie son ejercicios propuestos en el excelente curso [Testing Sostenible con TypeScript](https://academy.softwarecrafters.io/p/curso) de Miguel A. Gómez y Carlos Blé
+
+## Introducción
+
+En el mundo de JavaScript, existen muchos frameworks de testing, tales como [Jest](https://jestjs.io) o [Vitest](https://vitest.dev), por mencionar los más "populares" del momento. Todos ellos, a pesar de sus diferencias, se inspiran en la sintaxis de [RSpec](https://rspec.info), un framework de testing de [Ruby on Rails](https://rubyonrails.org). Esta sintaxis utiliza las funciones `describe`, `it` y `expect` en lugar de utilizar clases, métodos y decoradores, como es común en frameworks basados en [xUnit](https://xunit.net). `describe` es una función que sirve para definir una `suite` o conjunto de tests, mientras que `it` es un alias para la función `test`, en la cual se coloca el contenido del test. `expect` es una función que recibe alguna expresión y espera que cumpla con cierto comportamiento.
+
+Esencialmente, la ventaja de `RSpec` sobre `xUnit` es que las pruebas pueden agruparse a través de suites, lo que facilita mucho su organización. En este artículo, veremos cómo crear una versión muy simple de una librería de testing basada en `RSpec`, implementando los métodos `toBe` y `toThrowError`. El primero nos permite evaluar un valor exacto, mientras que el segundo es para evaluar que un error contenga cierta expresión o cumpla con una expresión regular dada. Para esto, utilizaremos dos funciones que nos permiten probar este comportamiento: una función de división y una función para calcular el factorial de un número.
+
+> En este ejemplo, se desarrolla una librería y no un framework porque nosotros invocamos ese código externo en nuestro propio código, en lugar de que el código externo invoque el nuestro. Puedes encontrar más detalles sobre esto [aquí](https://www.freecodecamp.org/news/the-difference-between-a-framework-and-a-library-bd133054023f/)
+
+<TOCInline toc={props.toc} exclude="Introducción" locale={props.locale} asDisclosure />
+
+## Preparación del entorno
+
+Utilizaremos un entorno de TypeScript con lo mínimo necesario. Este es el `package.json`:
+
+```json
+{
+  "name": "only-typescript",
+  "version": "1.0.0",
+  "description": "",
+  "main": "lib/app.js",
+  "author": "",
+  "license": "ISC",
+  "scripts": {
+    "start": "node lib/app.js",
+    "compile": "tsc -b",
+    "compile:watch": "tsc -b --watch",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "check-updates": "ncu -u"
+  },
+  "devDependencies": {
+    "npm-check-updates": "^16.7.10",
+    "typescript": "^4.9.5"
+  }
+}
+```
+
+Los archivos transpilados estarán en la carpeta `lib`. Por ejemplo, `file.ts` estará en `lib/file.js`. Por lo tanto, ejecutaremos los archivos que se encuentren en esta carpeta.
+
+En una terminal, ejecutamos `npm run compile:watch` para transpilar los archivos cada vez que hagamos cambios.
+
+> Notarás que uso el término 'transpilar', eso es porque TypeScript solo transforma código a JavaScript; solo 'traduce', pero no minifica, no optimiza, y por lo tanto no es un compilador
+
+## Definición de funciones
+
+Vamos a definir dos funciones: `divide` y `factorial`. Ambas estarán ubicadas en un archivo `math.ts`. `divide` recibe como argumento un arreglo de números, de modo que permite realizar divisiones entre sus elementos de izquierda a derecha.
+
+```ts
+// src/math.ts
+export function divide(numbers: number[]) {
+    if (numbers.length === 0) {
+        throw new Error("Array cannot be empty");
+    }
+    const restOfNumbers = numbers.slice(1);
+    return restOfNumbers.reduce((prev, current) => {
+        if (current === 0) {
+            throw new Error("Division by zero");
+        }
+        return prev / current;
+    }, numbers[0]);
+}
+```
+
+Espero que el código sea autoexplicativo, al menos la parte del arreglo vacío lo es. En la siguiente parte, por si no queda tan claro, el primer elemento se utiliza como valor inicial, y la iteración empieza desde el segundo elemento del arreglo original. Esto permite realizar la división entre el valor previo o acumulado, `prev`, y el valor del elemento actual, `current`. De lo contrario, sería imposible realizar la división, pues el valor inicial de `prev` no puede ser ningún otro. También prevenimos divisiones entre cero.
+
+`factorial`, por su parte, recibe un número como argumento y calcula el factorial aplicando la definición del factorial de $n$ como $n! = n \cdot (n - 1)!$. Esta definición solo aplica para números enteros positivos (incluyendo el cero), entonces también debemos validar esa parte. Para este ejemplo utilizo la versión recursiva porque me parece más fácil de entender, pero la versión iterativa es igual de válida. 
+
+```ts
+// src/math.ts
+export function factorial(number: number) {
+    if (number < 0) {
+        throw new Error("Negative numbers are not supported");
+    }
+
+    if (!Number.isInteger(number)) {
+        throw new Error("Number must be an integer");
+    }
+
+    if (number === 0 || number === 1) {
+        return 1;
+    }
+
+    return number * factorial(number - 1);
+}
+```
+
+## Definición de pruebas
+
+Vamos a definir las pruebas utilizando la misma sintaxis que se usaría en `Jest` o `Vitest`, para tener idea de la estructura que tenemos que lograr con nuestra librería. Estas pruebas estarán divididas en dos suites: una para `divide` y otra para `factorial`. Los casos a probar para `divide` son los siguientes:
+
+- Debe tirar un error para un arreglo vacío.
+- Debe regresar el número mismo si solo hay un elemento.
+- Debe dividir los números correctamente.
+- Debe tirar un error al intentar dividir entre cero.
+
+La sintaxis es esta:
+
+```ts
+describe("nombre de la suite", () => {
+  it("lo que debe hacer la prueba", () => {
+    // Contenido de la prueba
+  });
+});
+```
+
+Vamos a colocar nuestras pruebas en un archivo `math.test.ts`, que es la convención. Es decir, si tus funciones están definidas en un archivo `math`, entonces solo se agrega `.test` después para formar el nombre del archivo para las pruebas.
+
+A continuación, se presentan la definición de la suite y los casos que se mencionaron previamente para la función `divide`.
+
+```ts
+// src/math.test.ts
+describe("divide", () => {
+    it("should throw an error for an empty array", () => {
+        const result = () => divide([]);
+        const expected = "empty";
+
+        expect(result).toThrowError(expected);
+    });
+
+    it("should return the number itself if there's only one element", () => {
+        const result = divide([3]);
+        const expected = 3;
+
+        expect(result).toBe(expected);
+    });
+
+    it("should divide numbers correctly", () => {
+        const result = divide([15, 3, 5]);
+        const expected = 1;
+
+        expect(result).toBe(expected);
+    });
+
+    it("should throw an error when attempting to divide by zero", () => {
+        const result = () => divide([15, 0]);
+        const expected = "zero";
+
+        expect(result).toThrowError(expected);
+    });
+}
+```
+
+Las pruebas que usan `toBe` me parece que son suficientemente claras. Para las pruebas que usan `toThrowError`, se debe pasar un `callback` en lugar de solo la función, para después ejecutarla dentro de `toThrowError` y ver si tira error. Si se pasara la función directamente, no se podría probar, porque se ejecutaría, tiraría error y detendría toda la ejecución. Para esta prueba, simplemente se espera que el error contenga esa expresión de forma exacta, es decir, `case sensitive`. Si necesitamos que sea `case insensitive`, entonces hay que utilizar una expresión regular. Eso lo veremos con la suite del factorial.
+
+Por su parte, los casos para probar la función `factorial` son los siguientes:
+
+- Debe regresar 1 para 0 o 1.
+- Debe calcular el factorial correctamente.
+- Debe tirar un error para números negativos.
+- Debe tirar un error para números no enteros.
+
+A continuación, se presentan la definición de la suite con estos casos para la función `factorial`.
+
+```ts
+// src/math.test.ts
+describe("factorial", () => {
+    it("should return 1 for 0 or 1", () => {
+        const resultZero = factorial(0);
+        const resultOne = factorial(1);
+
+        const expected = 1;
+
+        expect(resultZero).toBe(expected);
+        expect(resultOne).toBe(expected);
+    });
+
+    it("should calculate factorial correctly", () => {
+        const result = factorial(5);
+        const expected = 120;
+
+        expect(result).toBe(expected);
+    });
+
+    it("should throw an error for negative numbers", () => {
+        const result = () => factorial(-1);
+        const expected = /negative numbers/i;
+
+        expect(result).toThrowError(expected);
+    });
+
+    it("should throw an error for non-integer numbers", () => {
+        const result = () => factorial(1.5);
+        const expected = /integer/i;
+
+        expect(result).toThrowError(expected);
+    });
+});
+```
+
+Aquí, para ilustrar el uso de expresiones regulares, en los casos en donde la función debe tirar un error, se espera que este error cumpla con la expresión regular dada, utilizando la bandera `i` para que sea case insensitive.
+
+## Definición de funciones de la librería
+
+Necesitamos definir tres funciones:
+
+- `expect`. Esta función se encargará de tomar el valor resultante de lo que sea que estemos probando, y se lo pasará al método correspondiente, ya sea `toBe` o `toThrowError`, para determinar si la prueba pasa o no. Esta función regresará un objeto de funciones, en este caso, `toBe` y `toThrowError`. Estas funciones simplemente tirarán un error si la prueba no pasa, y este error será capturado por la función `test`.
+- `test`. ¿Recuerdas que mencioné que `it` es un alias de `test`? Bueno, `it` se usa por brevedad y legibilidad, pero la función a definir para ejecutar las pruebas es `test`, y luego se asigna esta función a una variable llamada `it`. Esta función tomará una descripción y después un callback cuyo contenido será la prueba a realizar. Intentará ejecutar este callback, y si es exitoso, imprimirá la descripción de la prueba y el símbolo ✅. De lo contrario, imprimirá el error que haya capturado de `toBe` o `toThrowError` para mostrar que la prueba falló.
+- `describe`. Esta función servirá para definir la suite de pruebas y colocar un "separador" al ejecutarlas. Tomará como argumentos una descripción y un callback que contiene todas las pruebas que usan `it` o `test`.
+
+Como puedes ver, el orden en el que se explicaron estas funciones es el orden en el que hay que implementarlas, ya que la siguiente función depende de la anterior.
+
+### expect
+
+Las funciones de nuestra librería las colocaremos en un archivo `testLib.ts`. Para comenzar, la función `expect` tendrá la siguiente forma:
+
+```ts
+// src/testLib.ts
+export function expect<T>(result: T) {
+    return {
+        toBe: function (expected: T) {
+            // Tirar error si los valores no son iguales
+        },
+        toThrowError: function (expected: string | RegExp) {
+            // Intentar ejecutar callback y si no es exitoso, revisar que el error cumpla con la expresión esperada
+        }
+    }
+}
+```
+
+Se utiliza el tipo genérico `T` para que TypeScript muestre un error si intentamos comprar dos tipos diferentes en la función `toBe`. Por ejemplo:
+
+```ts
+expect(2).toBe("2");
+```
+
+Daría un error de tipos, porque `2` es `number` y `"2"` es `string`, así que no se satisface que el tipo `T` de `result` sea el mismo que el de `expected`. Ahora, para implementar el método `toBe` solo necesitamos checar si `result` y `expected` son diferentes y en ese caso, tirar un error.
+
+```ts
+// src/testLib.ts
+toBe: function (expected: T) {
+    if (expected !== result) {
+        throw new Error(`❌ ${result} expected to be ${expected}`);
+    }
+},
+```
+
+El método `toThrowError` es un poco más elaborado, pero siguiendo la definición, podemos llegar a lo siguiente:
+
+```ts
+// src/testLib.ts
+toThrowError: function (expected: string | RegExp) {
+    try {
+        (result as () => void)();
+    } catch (error) {
+        const errorMessage = (error as Error).message;
+        const expectedRegex = new RegExp(expected);
+
+        if (!expectedRegex.test(errorMessage)) {
+            throw new Error(`❌ "${errorMessage}" expected to match: ${expected}`);
+        }
+    }
+}
+```
+
+Una prueba exitosa tirará un error y ese error cumplirá con la expresión esperada. Como puedes ver, el valor esperado puede ser una cadena de texto o una expresión regular, pero, sin importar qué sea, podemos simplificarlo y dejar ambas como un objeto `RegExp` y simplemente probar la expresión regular en el error. Esto es porque algo como `"zero"` es equivalente a `/zero/`.
+
+### test
+
+Para implementar la función `test`, siguiendo la definición, lo único que tenemos que hacer es intentar ejecutar el callback que contiene la prueba, y si es exitoso, imprimir la descripción de la prueba y el símbolo ✅. De lo contrario, hay que capturar el error que haya tirado el método utilizado para la prueba, `toBe` o `toThrowError` e imprimirlo.
+
+```ts
+// src/testLib.ts
+export function test(description: string, callback: () => void) {
+    try {
+        callback();
+        console.log(`${description} ✅`);
+    } catch (error) {
+        console.log(error);
+    }
+}
+```
+
+Esto funciona porque cuando ocurre un error en `toBe` o `toThrowError`, el bloque `try catch` más cercano, o el `handler` más cercano es el de `test`.
+
+### describe
+
+Esta función es la más sencilla. Lo único que hay que hacer es imprimir la descripción de la suite y ejecutar el callback que contiene las pruebas.
+
+```ts
+// src/testLib.ts
+export function describe(description: string, callback: () => void) {
+    console.log(description);
+    callback();
+}
+```
+
+Finalmente definimos el alias `it` para `test`.
+
+```ts
+// src/testLib.ts
+export const it = test;
+```
+
+### Importación en archivo de pruebas
+
+Ahora que ya tenemos las funciones definidas, hay que importarlas en `math.test.ts`:
+
+```ts
+// src/math.test.ts
+import {divide, factorial} from "./math";
+import {describe, expect, it} from "./testLib";
+```
+
+### Ejecución de pruebas
+
+Para ejecutar las pruebas, una vez que tenemos los archivos transpilados, abrimos otra terminal y ejecutamos el archivo `lib/math.test.js`:
+
+```bash
+node lib/math.test.js
+```
+
+## Soporte para asincronía
+
+Para soportar asincronía en nuestras pruebas, necesitamos hacer dos cosas:
+
+- El método `toThrowError` debe ser asíncrono y utilizar `await` en `result`.
+- `test` debe ser una función asíncrona y utilizar `await` en `callback`.
+
+### toThrowError
+
+Agregando soporte para asincronía, nos queda lo siguiente:
+
+```ts
+toThrowError: async function (expected: string | RegExp) {
+    try {
+        await (result as () => void | Promise<void>)();
+    } catch (error) {
+        const errorMessage = (error as Error).message;
+        const expectedRegex = new RegExp(expected);
+
+        if (!expectedRegex.test(errorMessage)) {
+            throw new Error(`❌ "${errorMessage}" expected to match: ${expected}`);
+        }
+    }
+}
+```
+
+Hay que ver que la aserción de tipo de `result` se ajusta y se agrega `Promise<void>` porque ese sería el tipo de retorno de la función, una promesa de tipo `void`.
+
+### test
+
+Básicamente se hace lo mismo que en `toThrowError`:
+
+```ts
+export async function test(description: string, callback: () => void | Promise<void>) {
+    try {
+        await callback();
+        console.log(`${description} ✅`);
+    } catch (error) {
+        console.log(error);
+    }
+}
+```
+
+### Ejemplo de prueba asíncrona
+
+```ts
+// src/math.test.ts
+it("should throw an error when attempting to divide by zero (async)", async () => {
+    const result = () => Promise.resolve(divide([15, 0]));
+    const expected = "zero";
+
+    await expect(result).toThrowError(expected);
+});
+```
+
+## Limitaciones
+
+Además de las evidentes limitaciones que existen al no brindar las tantas funcionalidades que brindan los frameworks de testing, existe una limitación importante para la asincronía. Al ejecutar las pruebas, solo por el hecho de usar `async/await`, primero aparecen las descripciones de las suites y después las pruebas. Esto ocurre porque primero se imprime la descripción de la suite y después de ejecutan asíncronamente las pruebas, por lo que la siguiente función a ejecutar en la pila de llamadas es el `console.log` de la siguiente suite, y después se van imprimiendo los resultados encolados de las pruebas. Básicamente esto es el [event loop](https://www.youtube.com/watch?v=8aGhZQkoFbQ) en JavaScript.
+
+Al momento de escribir esto, desconozco una forma sencilla y elegante de manejar este problema. Parece no haberla, pero espero que sí haya una.
+
+## Enlace al repositorio de GitHub
+
+Puedes encontrar esta kata, y el resto de ellas, [aquí](https://github.com/carlos-talavera/katas-sustainable-testing-ts).
+
+## Conclusión
+
+Esta kata ilustra las ideas básicas detrás de frameworks de testing basados en `RSpec`, pues a pesar de la complejidad que estos pueden tener, al final del día parten de premisas similares. Al mismo tiempo, nos permite tener un entendimiento más profundo acerca del testing, ya que la mejor forma de aprender es construir nuestra propia versión de lo que sea que nos llame la atención. Finalmente, la reflexión aquí es que si alguien llega y te reta a "crear tu propia librería de testing", puedes sentirte abrumado, pero aquí podemos ver que en realidad es sencillo.
+
+Espero que te parezca útil, interesante, y te dé ideas para tus propios proyectos. Si tienes alguna duda o quieres compartir algo, déjalo en los comentarios :)

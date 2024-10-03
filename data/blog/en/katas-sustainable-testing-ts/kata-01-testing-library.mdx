@@ -1,0 +1,397 @@
+---
+title: "Kata 01 in TypeScript: Testing Library"
+series:
+  order: 1
+  title: "Sustainable Testing Katas in TypeScript"
+date: '2024/10/01'
+lastmod: '2024/10/01'
+language: en
+tags: ['testing', 'javascript', 'typescript']
+authors: ['default']
+draft: false
+featured: false
+summary: In this article of the "Sustainable Testing Katas in TypeScript", we'll see how to create a simple testing library, similar to Jest or Vitest.
+---
+
+> The katas of this series are proposed exercises in the excelent course [Testing Sostenible con TypeScript](https://academy.softwarecrafters.io/p/curso) by Miguel A. Gómez and Carlos Blé
+
+## Introduction
+
+In the JavaScript world, there are many testing frameworks, such as [Jest](https://jestjs.io) or [Vitest](https://vitest.dev), to mention the most "popular" of the moment. All of them, despite their differences, are inspired by the [RSpec](https://rspec.info) syntax, a testing framework for [Ruby on Rails](https://rubyonrails.org). This syntax uses the `describe`, `it` and `expect` functions instead of using classes, methods and decorators, as is common in frameworks based on [xUnit](https://xunit.net). `describe` is a function used to define a `suite` or test set, while `it` is an alias for the function `test`, in which the content of the test is placed. `expect` is a function that receives some expression and expects it to comply with some behavior.
+
+Essentially, the advantage of `RSpec` over `xUnit` is that the tests can be grouped through suites, which greatly facilitates their organization. In this article, we'll see how to create a very simple version of a testing library based on `RSpec`, implementing the `toBe` and `toThrowError` methods. The first one allows us to evaluate an exact value, whereas the second one is to evaluate that an error contains a certain expression or that it complies with a given regular expression. To do this, we will use two functions that allow us to test this behavior: a division function and a function to calculate the factorial of a number.
+
+> In this example, a library is developed and not a framework because we invoke that external code in our own code, instead of the external code invoking ours. You can find more details about this [here](https://www.freecodecamp.org/news/the-difference-between-a-framework-and-a-library-bd133054023f/)
+
+<TOCInline toc={props.toc} exclude="Introduction" locale={props.locale} asDisclosure />
+
+## Setting up the environment
+
+We will use a TypeScript environment with the minimum necessary. This is the `package.json`:
+
+```json
+{
+  "name": "only-typescript",
+  "version": "1.0.0",
+  "description": "",
+  "main": "lib/app.js",
+  "author": "",
+  "license": "ISC",
+  "scripts": {
+    "start": "node lib/app.js",
+    "compile": "tsc -b",
+    "compile:watch": "tsc -b --watch",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "check-updates": "ncu -u"
+  },
+  "devDependencies": {
+    "npm-check-updates": "^16.7.10",
+    "typescript": "^4.9.5"
+  }
+}
+```
+
+The transpiled files will be in the `lib` folder. For example, `file.ts` will be in `lib/file.js`. Therefore, we will run the files located in this folder.
+
+In a terminal, we will run `npm run compile:watch` to transpile the files every time we make changes.
+
+> You will note the use of the 'transpile' term, that's because TypeScript just transforms code to JavaScript; it only 'translates', but it doesn't minify, doesn't optimize, and therefore it isn't a compiler
+
+## Defining the functions
+
+Let's define two functions: `divide` and `factorial`. Both of them will be located in a `math.ts` file. `divide` receives an array of numbers as argument, so that divisions can be made between its elements from left to right.
+
+```ts
+// src/math.ts
+export function divide(numbers: number[]) {
+    if (numbers.length === 0) {
+        throw new Error("Array cannot be empty");
+    }
+    const restOfNumbers = numbers.slice(1);
+    return restOfNumbers.reduce((prev, current) => {
+        if (current === 0) {
+            throw new Error("Division by zero");
+        }
+        return prev / current;
+    }, numbers[0]);
+}
+```
+
+I hope the code is self-explanatory, at least the part of the empty array is. In the next part, if it is not so clear, the first element is used as the initial value and, and the iteration starts from the second element of the original array. This allows the division between the previous or accumulated value, `prev`, and the value of the current element, `current`. Otherwise, the division would be impossible, because the initial value of `prev` cannot be any other. We also prevent divisions by zero.
+
+For its part, `factorial`, receives a number as argument and calculates the factorial by applying the definition of the factorial of $n$ as $n! = n \cdot (n - 1)!$ . This definition only applies to positive integer numbers (including zero), then we also have to check for this part. For this example I use the recursive version because I think it's easier to understand, but the iterative version is just as valid.
+
+```ts
+// src/math.ts
+export function factorial(number: number) {
+    if (number < 0) {
+        throw new Error("Negative numbers are not supported");
+    }
+
+    if (!Number.isInteger(number)) {
+        throw new Error("Number must be an integer");
+    }
+
+    if (number === 0 || number === 1) {
+        return 1;
+    }
+
+    return number * factorial(number - 1);
+}
+```
+
+## Defining the tests
+
+Let's define the tests using the same syntax that would be used in `Jest` or `Vitest`, to have an idea of the structure that we have to achieve with our library. These tests will be divided into two suites: one for `divide` and the other one for `factorial`. The `divide` test cases are the following:
+
+- It should throw an error for an empty array.
+- It should return the number itself if there's only one element.
+- It should divide numbers correctly.
+- It should throw an error when attempting to divide by zero.
+
+This is the syntax:
+
+```ts
+describe("name of the suite", () => {
+  it("what the test should do", () => {
+    // Test content
+  });
+});
+```
+
+Let's place our tests in a `math.test.ts` file, which is the convention. That is, if your functions are defined in a `math` file, then you just add `.test` afterwards to form the name of the file for the tests.
+
+The following is the definition of the suite and the cases that were previously mentioned for the `divide` function.
+
+```ts
+// src/math.test.ts
+describe("divide", () => {
+    it("should throw an error for an empty array", () => {
+        const result = () => divide([]);
+        const expected = "empty";
+
+        expect(result).toThrowError(expected);
+    });
+
+    it("should return the number itself if there's only one element", () => {
+        const result = divide([3]);
+        const expected = 3;
+
+        expect(result).toBe(expected);
+    });
+
+    it("should divide numbers correctly", () => {
+        const result = divide([15, 3, 5]);
+        const expected = 1;
+
+        expect(result).toBe(expected);
+    });
+
+    it("should throw an error when attempting to divide by zero", () => {
+        const result = () => divide([15, 0]);
+        const expected = "zero";
+
+        expect(result).toThrowError(expected);
+    });
+}
+```
+
+I think that the tests that use `toBe` are sufficiently clear. For the tests that use `toThrowError`, a `callback` must be passed instead of the function only, and then run it inside `toThrowError` and see if it throws an error. If we passed directly the function, it could not be tested, because it would run, throw an error and stop the whole execution. For this test, we simply expect that the error contains that expression in an exact form, that is, `case sensitive`. If we need it to be `case insensitive`, then we have to use a regular expression. We will see that in the factorial suite.
+
+For its part, the test cases for the `factorial` function are the following:
+
+- It should return 1 for 0 or 1.
+- It should calculate the factorial correctly.
+- It should throw an error for negative numbers.
+- It should throw an error for non-integer numbers.
+
+The following is the definition of the suite with these test cases for the `factorial` function.
+
+```ts
+// src/math.test.ts
+describe("factorial", () => {
+    it("should return 1 for 0 or 1", () => {
+        const resultZero = factorial(0);
+        const resultOne = factorial(1);
+
+        const expected = 1;
+
+        expect(resultZero).toBe(expected);
+        expect(resultOne).toBe(expected);
+    });
+
+    it("should calculate factorial correctly", () => {
+        const result = factorial(5);
+        const expected = 120;
+
+        expect(result).toBe(expected);
+    });
+
+    it("should throw an error for negative numbers", () => {
+        const result = () => factorial(-1);
+        const expected = /negative numbers/i;
+
+        expect(result).toThrowError(expected);
+    });
+
+    it("should throw an error for non-integer numbers", () => {
+        const result = () => factorial(1.5);
+        const expected = /integer/i;
+
+        expect(result).toThrowError(expected);
+    });
+});
+```
+
+Here, to illustrate the use of regular expressions, in the cases where the function should throw an error, it is expected that this error complies with the given regular expression, using the `i` flag so that it is case insensitive.
+
+## Defining the library functions
+
+We need to define three functions:
+
+- `expect`. This function will be responsible for taking the resultant value of whatever we are testing, and pass it to the corresponding method, either `toBe` or `toThrowError`, to determine whether the test passes or fails. This function will return a function object, in this case, `toBe` and `toThrowError`. These functions will simply throw an error if the test fails, and this error will be caught by the `test` function.
+- `test`. Do you remember that I mentioned that `it` is an alias for `test`? Well, `it` is used for brevity and readability, but the function to be defined to run the tests is `test`, and then we assign this function to a variable called `it`. This function will take a description and then a callback which content will be the test to be performed. It will try to run this callback, and if it is successful, then it will print out the description of the test and the symbol ✅. Otherwise, it will print out the error that it has caught from `toBe` or `toThrowError` to show that the test failed.
+- `describe`. This function will be used to define the test suite and place a "separator" when running them. It will take as arguments a description and a callback that contains all the tests that use `it` or `test`.
+
+As you can see, the order in which these functions were explained is the same order in which we have to implement them, because the next function depends on the previous one.
+
+### expect
+
+We will place our library functions in a `testLib.ts` file. To start, the `expect` function will have the following form:
+
+```ts
+// src/testLib.ts
+export function expect<T>(result: T) {
+    return {
+        toBe: function (expected: T) {
+            // Throw an error if the values are not the same
+        },
+        toThrowError: function (expected: string | RegExp) {
+            // Try to execute the callback and if it doesn't succeed, check that the error complies with the expected expression
+        }
+    }
+}
+```
+
+The generic type `T` is used so that TypeScript shows an error if we try to compare two different types in the `toBe` function. For instance:
+
+```ts
+expect(2).toBe("2");
+```
+
+Would give us a type error, because `2` is `number` and `"2"` is `string`, so the `T` type from `result` doesn't satisfy to be the same as the one from `expected`. Now, to implement the `toBe` method we only need to check if `result` and `expected` are different and in that case, throw an error.
+
+```ts
+// src/testLib.ts
+toBe: function (expected: T) {
+    if (expected !== result) {
+        throw new Error(`❌ ${result} expected to be ${expected}`);
+    }
+},
+```
+
+The `toThrowError` method is a bit more elaborate, but by following the definition, we can get to the following:
+
+```ts
+// src/testLib.ts
+toThrowError: function (expected: string | RegExp) {
+    try {
+        (result as () => void)();
+    } catch (error) {
+        const errorMessage = (error as Error).message;
+        const expectedRegex = new RegExp(expected);
+
+        if (!expectedRegex.test(errorMessage)) {
+            throw new Error(`❌ "${errorMessage}" expected to match: ${expected}`);
+        }
+    }
+}
+```
+
+A successful test will throw an error and that error will comply with the expected expression. As you can see, the expected value can be whether a string or a regular expression, but, no matter what it is, we can simplify it and leave both as a `RegExp` object and simply test the regular expression on the error. This is because something like `"zero"` is equivalent to `/zero/`.
+
+### test
+
+To implement the `test` function, by following the definition, the only thing we need to do is to try to execute the callback that contains the test, and if it's successful, print out the test description and the symbol ✅. Otherwise, we have to catch the error thrown by the method used for the test, either `toBe` or `toThrowError`, and print it out.
+
+```ts
+// src/testLib.ts
+export function test(description: string, callback: () => void) {
+    try {
+        callback();
+        console.log(`${description} ✅`);
+    } catch (error) {
+        console.log(error);
+    }
+}
+```
+
+This works because when an error occurs in `toBe` or `toThrowError`, the nearest `try catch` block, or just the nearest `handler` is the one from `test`.
+
+### describe
+
+This function is the easiest. The only thing we have to do is to print out the suite description and run the callback that contains the tests. 
+
+```ts
+// src/testLib.ts
+export function describe(description: string, callback: () => void) {
+    console.log(description);
+    callback();
+}
+```
+
+We finally define the `it` alias for `test`.
+
+```ts
+// src/testLib.ts
+export const it = test;
+```
+
+### Importing in tests file
+
+Now that we have the functions defined, we have to import them in `math.test.ts`:
+
+```ts
+// src/math.test.ts
+import {divide, factorial} from "./math";
+import {describe, expect, it} from "./testLib";
+```
+
+### Running the tests
+
+To run the tests, once we have the transpiled files, we open another terminal and run the `lib/math.test.js` file:
+
+```bash
+node lib/math.test.js
+```
+
+## Support for asynchrony
+
+To add support for asynchrony in our tests, we need to do two things:
+
+- The `toThrowError` method must be asynchronous and use `await` in `result`.
+- `test` must be an asynchronous function and use `await` in `callback`.
+
+### toThrowError
+
+By adding support for asynchrony, we have the following:
+
+```ts
+toThrowError: async function (expected: string | RegExp) {
+    try {
+        await (result as () => void | Promise<void>)();
+    } catch (error) {
+        const errorMessage = (error as Error).message;
+        const expectedRegex = new RegExp(expected);
+
+        if (!expectedRegex.test(errorMessage)) {
+            throw new Error(`❌ "${errorMessage}" expected to match: ${expected}`);
+        }
+    }
+}
+```
+
+We have to see that the type assertion for `result` is adjusted and `Promise<void>` is added because that would be the return type of the function, a promise of type `void`.
+
+### test
+
+Basically the same is done as in `toThrowError`:
+
+```ts
+export async function test(description: string, callback: () => void | Promise<void>) {
+    try {
+        await callback();
+        console.log(`${description} ✅`);
+    } catch (error) {
+        console.log(error);
+    }
+}
+```
+
+### Asynchronous test example
+
+```ts
+// src/math.test.ts
+it("should throw an error when attempting to divide by zero (async)", async () => {
+    const result = () => Promise.resolve(divide([15, 0]));
+    const expected = "zero";
+
+    await expect(result).toThrowError(expected);
+});
+```
+
+## Limitations
+
+Besides the obvious limitations that exist by not providing as many functionalities as the testing frameworks provide, there is an important limitation for the asynchrony. When running the tests, just due to the fact of using `async/await`, the suite descriptions are displayed first and then the tests. This happens because the suite description is first printed out and then the tests are executed asynchronously, so that the next function to be executed in the call stack is the `console.log` from the next suite, and then all the queued results of the tests are printed out. This is basically the [event loop](https://www.youtube.com/watch?v=8aGhZQkoFbQ) in JavaScript.
+
+At the time of this writing, I don't know a simple and elegant way to handle this problem. There doesn't seem to be, but I hope there will be.
+
+## Link to GitHub repository
+
+You can find this kata, and the rest of them, [here](https://github.com/carlos-talavera/katas-sustainable-testing-ts).
+
+## Conclusion
+
+This kata illustrates the basic ideas behind testing frameworks based on `RSpec`, because despite the complexity that these may have, at the end of the day they start from similar premises. At the same time, it allows us to have a deeper understanding about testing, since the best way to learn is to build our own version of whatever it is that catches our attention. Finally, the reflection here is that if someone comes to you and challenges you to "create your own testing library", you can feel overwhelmed, but here we can see that is actually simple.
+
+I hope you find this useful, interesting, and gives you ideas for your own projects. If you have a question or want to share something, leave it in the comments :)
