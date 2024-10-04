@@ -10,10 +10,19 @@ export type PostSeriesProps = {
   data: any
 }
 
+const POSTS_AROUND_CURRENT = 2
+
 export const PostSeriesBox = ({ data }: PostSeriesProps) => {
-  const currentIndex = data.posts.findIndex((post: { isCurrent: any }) => post.isCurrent) + 1
+  const currentIndex = data.posts.findIndex((post: { isCurrent: any }) => post.isCurrent)
   const locale = useParams()?.locale as LocaleTypes
   const { t } = useTranslation(locale, 'common')
+
+  const startIndex = currentIndex - POSTS_AROUND_CURRENT > 0
+    ? currentIndex - POSTS_AROUND_CURRENT
+    : 0
+  const endIndex = currentIndex + POSTS_AROUND_CURRENT < data.posts.length
+    ? currentIndex + POSTS_AROUND_CURRENT + 1
+    : data.posts.length + 1
 
   return (
     <Card className="mb-4">
@@ -23,9 +32,9 @@ export const PostSeriesBox = ({ data }: PostSeriesProps) => {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        {t('episodes')} ({currentIndex}/{data.posts.length})
+        {t('episodes')} ({currentIndex + 1}/{data.posts.length})
         <ul>
-          {data.posts.map((p) => (
+          {data.posts.slice(startIndex, endIndex).map((p: any) => (
             <li
               key={p.slug}
               className={`relative my-3 list-none pl-7 text-sm before:absolute before:left-1 before:top-[9px] before:h-1.5 before:w-1.5 before:rounded-full
