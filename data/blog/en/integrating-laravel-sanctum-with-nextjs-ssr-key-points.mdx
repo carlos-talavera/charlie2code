@@ -62,7 +62,7 @@ public function toArray(Request $request): array
 
 ### Returning the authenticated user after login and registration
 
-We have to modify the `store` method in `app/Http/Controllers/Auth/AuthenticatedSessionController.php` to return the authenticated user after login. The same applies to the `store` method in `app/Http/Controllers/Auth/RegisteredUserController.php` after registering an user.
+We have to modify the `store` method in `AuthenticatedSessionController.php` to return the authenticated user after login. The same applies to the `store` method in `RegisteredUserController.php` after registering an user.
 
 ```php
 // app/Http/Controllers/Auth/AuthenticatedSessionController.php

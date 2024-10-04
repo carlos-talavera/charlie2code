@@ -62,7 +62,7 @@ public function toArray(Request $request): array
 
 ### Devolver usuario autenticado al iniciar sesión y registrarse
 
-Hay que modificar el método `store` en `app/Http/Controllers/Auth/AuthenticatedSessionController.php` para devolver el usuario autenticado al iniciar sesión. Lo mismo aplica para el método `store` en `app/Http/Controllers/Auth/RegisteredUserController.php` al registrar un usuario.
+Hay que modificar el método `store` en `AuthenticatedSessionController.php` para devolver el usuario autenticado al iniciar sesión. Lo mismo aplica para el método `store` en `RegisteredUserController.php` al registrar un usuario.
 
 ```php
 // app/Http/Controllers/Auth/AuthenticatedSessionController.php
