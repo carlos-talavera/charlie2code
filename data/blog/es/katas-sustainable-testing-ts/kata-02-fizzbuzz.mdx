@@ -198,7 +198,7 @@ it("should return 'buzz' for the number 5", () => {
 Al fallar la prueba, ahora tenemos que implementar lo necesario para que la función la pase. Para esto, realizaremos lo mismo que con el número `3`, ajustado al caso del `5`:
 
 ```ts
-// src/tests/fizzbuzz.test.ts
+// src/core/fizzbuzz.ts
 export function fizzBuzz(number: number) {
     if (number === 3) {
         return "fizz";
@@ -227,7 +227,7 @@ it("should return 'fizzbuzz' for the number 15", () => {
 Al fallar las pruebas, pasamos a `Green`, en donde haremos una implementación similar a las anteriores:
 
 ```ts
-// src/tests/fizzbuzz.test.ts
+// src/core/fizzbuzz.ts
 export function fizzBuzz(number: number) {
     if (number === 3) {
         return "fizz";
@@ -260,7 +260,7 @@ it("should return 'fizz' for a number divisible by 3", () => {
 La prueba fallará. Avanzamos a `Green` y en la implementación debemos checar que si el módulo del número dividido entre `3` es `0`, entonces hay que regresar `"fizz"`.
 
 ```ts
-// src/tests/fizzbuzz.test.ts
+// src/core/fizzbuzz.ts
 export function fizzBuzz(number: number) {
     if (number === 3) {
         return "fizz";
@@ -285,7 +285,7 @@ export function fizzBuzz(number: number) {
 Colocamos el condicional al final porque, de lo contrario, la prueba de `15` fallaría. Si corremos las pruebas, la nueva prueba ahora pasará. Ahora, tenemos la novedad de que sí tenemos que hacer algo en `Refactor`: eliminar el condicional que checa por la igualdad con `3`, porque ahora lo cubre el nuevo condicional.
 
 ```ts
-// src/tests/fizzbuzz.test.ts
+// src/core/fizzbuzz.ts
 export function fizzBuzz(number: number) {
     if (number === 5) {
         return "buzz";
@@ -318,7 +318,7 @@ it("should return 'buzz' for a number divisible by 5", () => {
 La nueva prueba fallará. Ahora estamos en `Green`. La implementación es similar a la anterior:
 
 ```ts
-// src/tests/fizzbuzz.test.ts
+// src/core/fizzbuzz.ts
 export function fizzBuzz(number: number) {
     if (number === 5) {
         return "buzz";
@@ -343,7 +343,7 @@ export function fizzBuzz(number: number) {
 Ahora, la nueva prueba pasará. De manera similar, en la fase de `Refactor` eliminaremos el condicional que checa por el número `5` exactamente:
 
 ```ts
-// src/tests/fizzbuzz.test.ts
+// src/core/fizzbuzz.ts
 export function fizzBuzz(number: number) {
     if (number === 15) {
         return "fizzbuzz";
@@ -376,7 +376,7 @@ it("should return 'fizzbuzz' for a number divisible by 15", () => {
 La prueba fallará. Pasamos a la fase de `Green` y para la implementación hacemos algo similar a lo que hicimos con `3` y `5`.
 
 ```ts
-// src/tests/fizzbuzz.test.ts
+// src/core/fizzbuzz.ts
 export function fizzBuzz(number: number) {
     if (number === 15) {
         return "fizzbuzz";
@@ -401,7 +401,7 @@ export function fizzBuzz(number: number) {
 Colocamos el condicional por encima de los otros dos porque, si es divisible tanto entre `3` como entre `5`, entonces debe tener prioridad que regrese `"fizzbuzz"`. Una vez que las pruebas pasen, seguimos con la fase de `Refactor`, en donde haremos algo similar a lo que hicimos con `3` y `5`: eliminar el condicional que checa exactamente por `15`.
 
 ```ts
-// src/tests/fizzbuzz.test.ts
+// src/core/fizzbuzz.ts
 export function fizzBuzz(number: number) {
     if (number % 15 === 0) {
         return "fizzbuzz";
@@ -434,7 +434,7 @@ it("should return the string of the number itself for the rest of numbers", () =
 La prueba fallará, pasaremos a `Green` y realizaremos la implementación para que en lugar de `"1"`, regrese el número convertido a cadena de texto cuando no cumple con ninguna de las condiciones establecidas.
 
 ```ts
-// src/tests/fizzbuzz.test.ts
+// src/core/fizzbuzz.ts
 export function fizzBuzz(number: number) {
     if (number % 15 === 0) {
         return "fizzbuzz";
@@ -455,7 +455,7 @@ export function fizzBuzz(number: number) {
 La nueva prueba ahora pasará. Se podría decir que aquí se hizo refactorización, pero en realidad no, simplemente realizamos la implementación con lo mínimo necesario para pasar la prueba, así que algo como dejar el `"1"` con un condicional y `number.toString()` como default, hubiera sido más que lo mínimo. Ahora, en la fase de `Refactor` podemos mejorar la función para utilizar una función auxiliar `isDivisibleBy` que tome el divisor y cheque si el número es divisible entre dicho divisor. Nos queda lo siguiente:
 
 ```ts
-// src/tests/fizzbuzz.test.ts
+// src/core/fizzbuzz.ts
 export function fizzBuzz(number: number) {
     function isDivisibleBy(divisor: number) {
         return number % divisor === 0;
