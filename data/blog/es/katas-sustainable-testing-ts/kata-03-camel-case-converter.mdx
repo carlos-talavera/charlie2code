@@ -1,0 +1,273 @@
+---
+title: "Kata 03 con TypeScript: Convertidor de CamelCase"
+series:
+  order: 3
+  title: "Katas Testing Sostenible con TypeScript"
+date: '2024/10/04'
+lastmod: '2024/10/04'
+language: es
+tags: ['testing', 'tdd', 'javascript', 'typescript']
+authors: ['default']
+draft: false
+featured: false
+summary: En este artículo de la serie "Katas Testing Sostenible con TypeScript", veremos cómo implementar un convertidor de CamelCase utilizando TDD y Jest.
+---
+
+> Las katas de esta serie son ejercicios propuestos en el excelente curso [Testing Sostenible con TypeScript](https://academy.softwarecrafters.io/p/curso) de Miguel A. Gómez y Carlos Blé
+
+## Introducción
+
+Existen dos tipos de `CamelCase`: `UpperCamelCase` y `lowerCamelCase`. El primero suele ser conocido como `PascalCase`, mientras que el segundo es el que más se asocia a esta convención de nombres. En esta ocasión, el convertidor en cuestión será para el primer caso. Por simplicidad, se utilizará `CamelCase` como alias de `UpperCamelCase`.
+
+En este artículo, veremos cómo crear una función que permita convertir una cadena de texto a `CamelCase` utilizando TDD. Para mantener el artículo conciso, las fases de `Red-Green-Refactor` estarán implícitas. Si no sabes de qué hablo, checa el [artículo anterior](https://charlie2code.com/es/blog/katas-sustainable-testing-ts/kata-02-fizzbuzz) de esta serie. Ahí se explica paso a paso este tema con el clásico problema de FizzBuzz.
+
+<TOCInline toc={props.toc} exclude="Introducción" locale={props.locale} asDisclosure />
+
+## Restricciones
+
+Asumiremos que la conversión es a partir de expresiones que cumplan las siguientes características:
+
+- Las letras de las palabras pueden ser solo minúsculas, o si hay letras mayúsculas, estas solo pueden estar en la primera posición de cada palabra.
+- Los separadores entre palabras pueden ser solo espacios, guiones medios o bajos.
+
+Eso significa que una palabra como `FOo` no sería convertida correctamente a `Foo`.
+
+Hay dos razones para esto:
+
+1. Un convertidor de este tipo se utiliza para expresiones que ya utilizan otra convención de nombres.
+2. Nadie en su sano juicio utilizaría `MiXeDcAsE` (solo leerlo es doloroso, y ni te cuento cómo fue escribirlo).
+
+> Para realizar este ejercicio, utilizaremos una plantilla que puedes encontrar [aquí](https://github.com/softwarecrafters-io/ts-eslint-prettier-jest)
+
+## Creación del convertidor
+
+Vamos a crear dos archivos: `camel-case-converter.ts` y `camel-case-converter.test.ts`. El primero contendrá la función `toCamelCase` y el segundo, las pruebas.
+
+```ts
+// src/core/camel-case-converter.ts
+export function toCamelCase(string: string) {
+  // implementación aquí
+}
+```
+
+```ts
+// src/tests/camel-case-converter.test.ts
+import {toCamelCase} from "../core/camel-case-converter";
+```
+
+Para agrupar nuestras pruebas, vamos a definir una suite que contenga `CamelCaseConverter` como descripción.
+
+```ts
+// src/tests/camel-case-converter.test.ts
+describe("CamelCaseConverter", () => {
+  // pruebas aquí
+});
+```
+
+Abordaremos los siguientes casos, en el orden dado:
+
+1. Debe regresar una cadena vacía para una cadena vacía (o bien, regresarla tal cual).
+2. Debe regresar la misma palabra para una palabra con la primera letra en mayúsculas.
+3. Debe regresar las palabras unidas en formato `CamelCase` para palabras separadas por espacios con la primera letra en mayúsculas.
+4. Debe regresar las palabras unidas en formato `CamelCase` para palabras separadas por guiones con la primera letra en mayúsculas.
+5. Debe regresar la palabra con la primera letra en mayúsculas para una palabra con la primera letra en minúsculas.
+6. Debe regresar las palabras unidas en formato `CamelCase` para palabras en minúsculas.
+
+### Caso 1
+
+**1. Debe regresar una cadena vacía para una cadena vacía (o bien, regresarla tal cual).**
+
+Creamos la prueba:
+
+```ts
+// src/tests/camel-case-converter.test.ts
+it("should return an empty string for an empty string", () => {
+    const result = toCamelCase("");
+    const expected = "";
+
+    expect(result).toBe(expected);
+});
+```
+
+La implementación mínima sería simplemente regresar la cadena vacía:
+
+```ts
+// src/core/camel-case-converter.ts
+export function toCamelCase(string: string) {
+    return "";
+}
+```
+
+No hay nada por refactorizar.
+
+### Caso 2
+
+**2. Debe regresar la misma palabra para una palabra con la primera letra en mayúsculas.**
+
+Creamos la prueba:
+
+```ts
+// src/tests/camel-case-converter.test.ts
+it("should return the same word for a word with the first letter capitalized", () => {
+    const result = toCamelCase("Foo");
+    const expected = "Foo";
+
+    expect(result).toBe(expected);
+});
+```
+
+La implementación mínima sería regresar la cadena que recibe la función, y esto seguiría funcionando para el caso 1.
+
+```ts
+// src/core/camel-case-converter.ts
+export function toCamelCase(string: string) {
+    return string;
+}
+```
+
+No hay nada por refactorizar.
+
+### Caso 3
+
+**3. Debe regresar las palabras unidas en formato `CamelCase` para palabras separadas por espacios con la primera letra en mayúsculas.**
+
+Creamos la prueba:
+
+```ts
+// src/tests/camel-case-converter.test.ts
+it("should return the words joined in CamelCase format for words separated by spaces with the first letter capitalized", () => {
+    const result = toCamelCase("Foo Bar");
+    const expected = "FooBar";
+
+    expect(result).toBe(expected);
+});
+```
+
+La implementación mínima, para no lidiar con expresiones regulares aún, sería separar la cadena utilizando un espacio como separador, y después unir los elementos sin ningún separador.
+
+```ts
+// src/core/camel-case-converter.ts
+export function toCamelCase(string: string) {
+    return string.split(' ').join('');
+}
+```
+
+Las pruebas anteriores seguirían pasando, por supuesto. En esos casos el resultado de separar la cadena sería un arreglo de un solo elemento. Otra vez, no hay nada por refactorizar.
+
+### Caso 4
+
+**4. Debe regresar las palabras unidas en formato `CamelCase` para palabras separadas por guiones con la primera letra en mayúsculas.**
+
+Creamos la prueba:
+
+```ts
+// src/tests/camel-case-converter.test.ts
+it("should return the words joined in CamelCase format for words separated by hyphens with the first letter capitalized", () => {
+    const result = toCamelCase("Foo_Bar-Foo");
+    const expected = "FooBarFoo";
+
+    expect(result).toBe(expected);
+});
+```
+
+La implementación mínima sería, ahora sí, utilizar una expresión regular para separar la cadena por espacios y guiones, ya sean medios o bajos, y después unir los elementos sin ningún separador.
+
+```ts
+// src/core/camel-case-converter.ts
+export function toCamelCase(string: string) {
+    return string.split(/[-_\s]/).join('');
+}
+```
+
+Se usa `\s` en lugar de `' '` por claridad. De nuevo, la refactorización es como el RGB para ser buen programador, no se necesita.
+
+### Caso 5
+
+**5. Debe regresar la palabra con la primera letra en mayúsculas para una palabra con la primera letra en minúsculas.**
+
+Creamos la prueba:
+
+```ts
+// src/tests/camel-case-converter.test.ts
+it("should return the word with the first letter capitalized for a word with the first letter in lowercase", () => {
+    const result = toCamelCase("foo");
+    const expected = "Foo";
+
+    expect(result).toBe(expected);
+});
+```
+
+La implementación mínima aquí sería resolver este problema de la conversión de minúscula a mayúscula para una sola palabra.
+
+```ts
+// src/core/camel-case-converter.ts
+export function toCamelCase(string: string) {
+    const word = string.split(/[-_\s]/).join('');
+    return word.charAt(0).toUpperCase() + word.substring(1);
+}
+```
+
+Primero eliminamos los separadores, unimos de regreso las letras y después convertimos la primera letra a mayúscula y la unimos con el resto de la cadena. De nuevo, no hay nada por refactorizar. 
+
+### Caso 6
+
+**6. Debe regresar las palabras unidas en formato `CamelCase` para palabras en minúsculas.**
+
+Llegamos al último caso, ¿qué hay que hacer primero? Crear la prueba:
+
+```ts
+// src/tests/camel-case-converter.test.ts
+it("should return the words joined in CamelCase format for lowercase words", () => {
+    const result = toCamelCase("foo_bar foo");
+    const expected = "FooBarFoo";
+
+    expect(result).toBe(expected);
+});
+```
+
+La implementación mínima que necesitamos parte del caso anterior. Ya sabemos cómo manejar una palabra, entonces solo hay que generalizarlo para la cantidad que sea. Esto es: separar las palabras utilizando los separadores dados, convertir la primera letra de cada una a mayúscula y unirla con el resto de la palabra, y finalmente unir los resultados de cada palabra.
+
+```ts
+// src/core/camel-case-converter.ts
+export function toCamelCase(string: string) {
+    const words = string.split(/[-_\s]/);
+    return words.map((word) => word.charAt(0).toUpperCase() + word.substring(1)).join('');
+}
+```
+
+Aquí, se une todo hasta el final porque no tendría sentido eliminar los separadores, unir los elementos y volver a separar. En este último caso no habría tampoco necesidad de refactorizar.
+
+¡Vualá! Una función más implementada usando TDD. Sí, no se llama magia, aunque a veces lo parece por lo fantástico que llega a ser (mi blog, mis chistes malos).
+
+## Bonus: Otros Casos
+
+Si quieres extender la función para que convierta expresiones que contengan letras mezcladas, habría que convertir todas las letras mayúsculas, que no sean la primera letra de una palabra, a minúscula. Esto se lograría, por ejemplo, con una expresión regular que utilice un `negative lookbehind`. Pensaba simplemente darte el concepto, pero ya que estamos aquí, esta sería la expresión regular:
+
+```ts
+/(?<!^|[-_\s])[A-Z]/g
+```
+
+De aquí, solo tendrías que reemplazar todas las coincidencias con su versión en minúsculas. Por ejemplo:
+
+```ts
+const word = string.replaceAll(/(?<!^|[-_\s])[A-Z]/g, (match) => {
+  return match.toLowerCase();
+})
+```
+
+Solo ten en cuenta que, utilizando la configuración de TypeScript de la plantilla, `replaceAll` no es soportado porque la configuración usa `ES5`. Tendrías que cambiarlo por algo como `es2021`:
+
+```json
+// tsconfig.json
+"target": "es2021"
+```
+
+## Enlace al repositorio de GitHub
+
+Puedes encontrar esta kata, y el resto de ellas, [aquí](https://github.com/carlos-talavera/katas-sustainable-testing-ts).
+
+## Conclusión
+
+No te preocupes si este proceso no te parece tan fácil al inicio, repítelo hasta que te quede claro en qué consiste crear software pensando en las pruebas y no en el software en sí. Crea tus propias funciones y pruebas de lo que sea que te interese o te parezca divertido, y poco a poco te hará más sentido. La clave es pensar en **_qué_** tiene que pasar, y naturalmente llegará la implementación que necesitas.
+
+Espero que este otro ejemplo de TDD te sea útil y te ayude a tener una visión más clara de cómo abordar problemas usando este enfoque. Ya sabes, si tienes alguna duda o quieres compartir algo, déjalo en los comentarios :)
