@@ -143,7 +143,7 @@ it("should return 1 for the number 1", () => {
 
 Si corremos las pruebas con `npm test`, fallarán con ese `Red` esperado, porque la función hasta el momento no hace nada, o, técnicamente, regresa `undefined`.
 
-![01](/static/images/katas-sustainable-testing-ts/01.png)
+![01](/public/static/images/katas-sustainable-testing-ts/kata-02-fizzbuzz/01.png)
 
 Ahora pasamos a la fase de `Green`, en donde hacemos la implementación mínima para que pase la prueba, y con mínima me refiero a solo preocuparnos por eso, porque solo tenemos un caso, entonces simplemente regresamos `"1"`.
 
@@ -156,7 +156,7 @@ export function fizzbuzz(number: number) {
 
 Si corremos las pruebas ahora, obtendremos ese `Green` que buscábamos:
 
-![02](/static/images/katas-sustainable-testing-ts/02.png)
+![02](/public/static/images/katas-sustainable-testing-ts/kata-02-fizzbuzz/02.png)
 
 Ahora llegaríamos a la fase de `Refactor`, pero hasta este punto no hay nada que refactorizar, no podemos simplificar más ese `return`. Entonces pasamos a `Red` otra vez. Ahora, vamos a crear una prueba para el número `3`, para el que debe regresar `"fizz"`.
 
