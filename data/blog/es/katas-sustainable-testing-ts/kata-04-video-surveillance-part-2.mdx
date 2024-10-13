@@ -1,0 +1,278 @@
+---
+title: "Kata 04 con TypeScript: Videovigilancia - Parte 2"
+series:
+  order: 5
+  title: "Katas Testing Sostenible con TypeScript"
+date: '2024/10/12'
+lastmod: '2024/10/12'
+language: es
+tags: ['testing', 'tdd', 'javascript', 'typescript']
+authors: ['default']
+draft: false
+featured: false
+summary: En este artículo de la serie "Katas Testing Sostenible con TypeScript", veremos cómo usar stubs y spies de Jest con un ejemplo de videovigilancia.
+---
+
+> Las katas de esta serie son ejercicios propuestos en el excelente curso [Testing Sostenible con TypeScript](https://academy.softwarecrafters.io/p/curso) de Miguel A. Gómez y Carlos Blé
+
+## Introducción
+
+En esta segunda parte, seguiremos implementando las pruebas para simular el comportamiento de la cámara, ahora aprovechando los métodos que provee Jest para nuestros dobles de prueba.
+
+<TOCInline toc={props.toc} exclude="Introducción" locale={props.locale} asDisclosure />
+
+## Tercera iteración: dobles usando los mocks de Jest
+
+Ya vimos cómo usar nuestros propios stubs y spies, y esto está bien, pero Jest provee métodos para hacerlo sin necesidad de que nosotros reinventemos la rueda. Jest, como muchos otros frameworks, no sigue las definiciones de Meszaros. Entonces, la distinción la hacemos nosotros conceptualmente. Para lograr este tipo de comportamiento, Jest provee el método `spyOn`, que recibe como primer argumento un objeto y como segundo el nombre del método sobre el que queremos espiar.
+
+```ts
+const someMethodToBeSpiedOn = jest.spyOn(someObject, 'someMethod');
+```
+
+Para utilizarlo, primero retomemos las clases iniciales `FakeSensor` y `FakeVideoRecorder`:
+
+```ts
+// src/tests/surveillance-controller.test.ts
+class FakeSensor implements MotionSensor {
+    isDetectingMotion(): boolean {
+        return false;
+    }
+}
+
+class FakeVideoRecorder implements VideoRecorder {
+    startRecording() {
+        console.log('start recording...');
+    }
+
+    stopRecording() {
+        console.log('stop recording...');
+    }
+}
+```
+
+Vamos con la primera prueba, cuando se detiene la grabación porque el sensor no detecta movimiento. Lo que tenemos que hacer aquí es utilizar estas clases `fake` y espiar sobre el método `stopRecording` del grabador. Para la aserción, es decir, la validación de lo que tiene que ocurrir para que la prueba pase, utilizaremos el spy que se crea utilizando `spyOn`, ya que así lo maneja Jest. Esto es equivalente a checar por `called` como lo hicimos en la primera iteración.
+
+```ts
+// src/tests/surveillance-controller.test.ts
+it('asks the recorder to stop recording when the sensor detects no motion', () => {
+    const sensor = new FakeSensor();
+    const videoRecorder = new FakeVideoRecorder();
+    const controller = new SurveillanceController(sensor, videoRecorder);
+    const spyRecorder = jest.spyOn(videoRecorder, 'stopRecording');
+
+    controller.recordMotion();
+
+    expect(spyRecorder).toBeTruthy();
+});
+```
+
+El sensor, como espero que recuerdes, es un stub, mientras que el grabador es un spy. Al ejecutar las pruebas, pasarán. Ahora vamos con la segunda prueba, iniciar la grabación cuando el sensor detecta movimiento. Es muy parecido, con la diferencia de que espiamos sobre el método `startRecording` y cambiamos la implementación de `isDetectingMotion` para que devuelva `true`.
+
+```ts
+// src/tests/surveillance-controller.test.ts
+it('asks the recorder to start recording when the sensor detects motion', () => {
+    const sensor = new FakeSensor();
+    const videoRecorder = new FakeVideoRecorder();
+    const controller = new SurveillanceController(sensor, videoRecorder);
+    const stubSensor = jest.spyOn(sensor, 'isDetectingMotion');
+    stubSensor.mockImplementation(() => true);
+    const spyRecorder = jest.spyOn(videoRecorder, 'startRecording');
+
+    controller.recordMotion();
+
+    expect(spyRecorder).toBeTruthy();
+});
+```
+
+Mencioné anteriormente que Jest no hace distinción precisamente por lo que ocurre aquí, para el sensor usamos `spyOn`, pero es un stub porque lo utilizamos para devolver una respuesta concreta y usarla como entrada indirecta. Para cambiar la implementación para la prueba se usa el método `mockImplementation`. Al ejecutar las pruebas, seguirán pasando. Debido a que ya realizamos el cambio, podemos borrar las clases de stubs para el sensor y spy para el grabador. 
+
+Lo que sigue ahora es una pequeña refactorización. En ambas pruebas tenemos las mismas tres líneas al inicio, es decir, instanciar el sensor, el grabador y el controlador. Entonces, podemos extraer esta lógica para que antes de cada prueba se instancien. En otras palabras, declarar variables dentro de la suite y asignarle a cada una su instancia en el método `beforeEach`.
+
+```ts
+// src/tests/surveillance-controller.test.ts
+describe('Surveillance Controller', () => {
+    let sensor: MotionSensor;
+    let videoRecorder: FakeVideoRecorder;
+    let controller: SurveillanceController;
+    
+    beforeEach(() => {
+        sensor = new FakeSensor();
+        videoRecorder = new FakeVideoRecorder();
+        controller = new SurveillanceController(sensor, videoRecorder);
+    });
+    
+    it('asks the recorder to stop recording when the sensor detects no motion', () => {
+        const spyRecorder = jest.spyOn(videoRecorder, 'stopRecording');
+
+        controller.recordMotion();
+
+        expect(spyRecorder).toBeTruthy();
+    });
+
+    it('asks the recorder to start recording when the sensor detects motion', () => {
+        const stubSensor = jest.spyOn(sensor, 'isDetectingMotion');
+        stubSensor.mockImplementation(() => true);
+        const spyRecorder = jest.spyOn(videoRecorder, 'startRecording');
+
+        controller.recordMotion();
+
+        expect(spyRecorder).toBeTruthy();
+    });
+});
+```
+
+Hecho esto, vamos a implementar una prueba para el tercer caso: indica al grabador que detenga la grabación cuando el sensor arroja un error inesperado. Para esto, tenemos que cambiar la implementación del sensor para esta prueba y hacer que tire un "error inesperado". Como el resultado será un error, no podemos utilizar `toBeTruthy`, sino que lo que se espera del spy es que haya sido llamado. ¿Por qué no checar que contenga cierto error con `toThrow`? Porque en el entorno real, no sabemos qué diría el error, así que sería una prueba débil que en realidad no probaría nada.
+
+```ts
+// src/tests/surveillance-controller.test.ts
+it('asks the recorder to stop recording when the sensor throw an unexpected error', () => {
+    const stubSensor = jest.spyOn(sensor, 'isDetectingMotion');
+    stubSensor.mockImplementation(() => {
+        throw new Error('Unexpected Error');
+    });
+    const spyRecorder = jest.spyOn(videoRecorder, 'stopRecording');
+
+    controller.recordMotion();
+
+    expect(spyRecorder).toHaveBeenCalled();
+});
+```
+
+El método `toHaveBeenCalled` nos permite revisar si una función fue llamada. Esto todavía no funcionaría porque `recordMotion` no está preparado para manejar errores. Entonces, es necesario agregar un bloque `try catch` para que al ocurrir un error, se detenga la grabación, como lo espera el test.
+
+```ts
+// src/core/surveillance-controller.ts
+class SurveillanceController {
+    constructor(private sensor: MotionSensor, private videoRecorder: VideoRecorder) {}
+
+    recordMotion() {
+        try {
+            this.sensor.isDetectingMotion() ? this.videoRecorder.startRecording() : this.videoRecorder.stopRecording();
+        } catch (error) {
+            this.videoRecorder.stopRecording();
+        }
+    }
+}
+```
+
+Si ejecutamos las pruebas ahora, pasarán.
+
+## Cuarta iteración: último caso
+
+Todavía nos falta un caso: comprueba el estado del sensor de movimiento una vez por segundo. Para la prueba, lo que tenemos que hacer es espiar sobre el método `isDetectingMotion` del sensor y revisar que se ejecute una cantidad dada de veces. ¿Por qué? Bueno, porque en este contexto, que ese método se ejecute `n` cantidad de veces es lo mismo que decir que se detecta movimiento `n` cantidad de veces, y si esto ocurre a cada segundo, entonces se detecta movimiento `n` segundos. Jest nos provee el método `toHaveBeenCalledTimes` para esto.
+
+```ts
+// src/tests/surveillance-controller.test.ts
+it('checks the sensor status once per second', () => {
+  const sensorSpy = jest.spyOn(sensor, 'isDetectingMotion');
+  const numberOfSeconds = 3;
+
+  controller.recordMotion(numberOfSeconds);
+
+  expect(sensorSpy).toHaveBeenCalledTimes(numberOfSeconds);
+});
+```
+
+El número de segundos es arbitrario. Aquí podría parecer que tenemos un mock estricto del sensor, pero no, sigue siendo un spy porque si bien esperamos que se ejecute 3 veces, no hay nada que impida que se ejecute más veces. Un mock estricto implementa una validación de número de ejecuciones y tira un error si el límite se supera.
+
+Para que esto funcione, es necesario modificar el método `recordMotion` del controlador para que se ejecute la cantidad de veces que se indiquen como número de segundos. Esto se logra fácilmente con un bucle `for`.
+
+```ts
+// src/core/surveillance-controller.ts
+class SurveillanceController {
+    constructor(private sensor: MotionSensor, private videoRecorder: VideoRecorder) {}
+
+    recordMotion(numberOfSeconds: number = 1) {
+        for(let i = 1; i <= numberOfSeconds; i++) {
+            try {
+                this.sensor.isDetectingMotion() ? this.videoRecorder.startRecording() : this.videoRecorder.stopRecording();
+            } catch (error) {
+                this.videoRecorder.stopRecording();
+            }
+        }
+    }
+}
+```
+
+Es necesario indicar un valor por defecto para `numberOfSeconds` para que el resto de las pruebas sigan pasando. Vamos a extraer el bloque `try catch` a su propio método para dejar más limpio el método `recordMotion`.
+
+```ts
+// src/core/surveillance-controller.ts
+export class SurveillanceController {
+    constructor(private sensor: MotionSensor, private videoRecorder: VideoRecorder) {}
+
+    recordMotion(numberOfSeconds: number = 1) {
+        for(let i = 1; i <= numberOfSeconds; i++) {
+            this.tryToRecordMotion();
+        }
+    }
+
+    private tryToRecordMotion() {
+        try {
+            this.sensor.isDetectingMotion() ? this.videoRecorder.startRecording() : this.videoRecorder.stopRecording();
+        } catch (error) {
+            this.videoRecorder.stopRecording();
+        }
+    }
+}
+```
+
+En teoría, el caso estaría cubierto, pero realmente cada iteración no ocurre en un segundo. La única forma de simular este comportamiento es bloqueando el hilo principal de ejecución, lo que claramente no es recomendable en ningún entorno real, solo en situaciones como esta donde se necesita simular un comportamiento. Para lograrlo, podemos definir el tiempo inicial como el tiempo actual y el tiempo final como el tiempo inicial más un segundo. Mediante un bucle `while`, si el tiempo inicial es menor al tiempo final, entonces el tiempo inicial se actualiza al tiempo actual y eventualmente será mayor que el tiempo final y habrá pasado un segundo o más desde que empezamos a contar, saliendo así del bucle y continuando con la ejecución del programa.
+
+```ts
+// src/core/surveillance-controller.ts
+private waitOneSecond() {
+    const aSecond = 1000;
+    let startTime = new Date().getTime();
+    const endTime = startTime + aSecond;
+    while (startTime < endTime) {
+        startTime = new Date().getTime();
+    }
+}
+```
+
+Este método se ejecutará después de cada intento de grabación.
+
+```ts
+export class SurveillanceController {
+    constructor(private sensor: MotionSensor, private videoRecorder: VideoRecorder) {}
+
+    recordMotion(numberOfSeconds: number = 1) {
+        for(let i = 1; i <= numberOfSeconds; i++) {
+            this.tryToRecordMotion();
+            this.waitOneSecond();
+        }
+    }
+
+    private tryToRecordMotion() {
+        try {
+            this.sensor.isDetectingMotion() ? this.videoRecorder.startRecording() : this.videoRecorder.stopRecording();
+        } catch (error) {
+            this.videoRecorder.stopRecording();
+        }
+    }
+
+    private waitOneSecond() {
+        const aSecond = 1000;
+        let startTime = new Date().getTime();
+        const endTime = startTime + aSecond;
+        while (startTime < endTime) {
+            startTime = new Date().getTime();
+        }
+    }
+}
+```
+
+El resultado de esto será que las primeras tres pruebas van a tardar alrededor de 1 segundo (porque `waitOneSecond` se ejecuta una vez), y la última prueba tomará, en este caso, alrededor de 3 segundos.
+
+Así, nuestro controlador está listo y el ejercicio ha sido resuelto.
+
+## Enlace al repositorio de GitHub
+
+Puedes encontrar esta kata, y el resto de ellas, [aquí](https://github.com/carlos-talavera/katas-sustainable-testing-ts).
+
+## Conclusión
+
+Cuando se trata de crear pruebas para funciones con dependencias externas, es común que se utilicen en exceso los mocks, porque parece fácil utilizar dummy objects y no se conoce o entiende el concepto de stubs o spies. Otros errores comunes son usar mocks para objetos o funciones sin dependencias o agregar comportamiento extra, es decir, que un mock haga más de lo que hace en realidad el artefacto que estamos simulando. También es igual de importante que las pruebas reflejen de la manera más fiel posible el entorno de producción, para que aporten realmente seguridad al código.
+
+Con este ejercicio espero que se refleje lo que acabo de mencionar y tengas una mejor idea de cómo probar funciones con dependencias externas utilizando los tipos de dobles de prueba adecuados. Recuerda, stubs son para entradas indirectas y spies para salidas indirectas. Estos nos permiten simular el flujo de ejecución de artefactos externos y verificar los resultados de diferentes formas. Si tienes alguna duda o quieres compartir algo, déjalo en los comentarios :)

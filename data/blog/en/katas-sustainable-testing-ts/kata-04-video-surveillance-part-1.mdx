@@ -1,0 +1,395 @@
+---
+title: "Kata 04 in TypeScript: Video Surveillance - Part 1"
+series:
+  order: 4
+  title: "Sustainable Testing Katas in TypeScript"
+date: '2024/10/11'
+lastmod: '2024/10/11'
+language: en
+tags: ['testing', 'tdd', 'javascript', 'typescript']
+authors: ['default']
+draft: false
+featured: false
+summary: In this article of the series "Sustainable Testing Katas in TypeScript", we'll see how to use our own stubs and spies with a video surveillance example.
+---
+
+> The katas of this series are proposed exercises in the excellent course [Testing Sostenible con TypeScript](https://academy.softwarecrafters.io/p/curso) by Miguel A. Gómez and Carlos Blé
+
+## Introduction
+
+When creating tests with external dependencies, it is necessary to use data that allows us to simulate the behavior of the elements involved. These tests can be done through the integration with testing databases or external APIs, or by simulating the integration through in-memory data. There are three types of components or artifacts which, well employed, solve any need for this kind of information. These are: `Stubs`, `Spies` and `Mocks`. These can be objects or functions.
+
+The `Stubs` don't have memory (like the gentlemen, I'm sorry, but the joke was right there), that is, they exist in memory as an object or as a function, but they don't have a way to know if they have already been used or not and they always return a concrete response. In this sense, they behave in a pure way. They are used when the function to be tested is not direct, which means that it is not self-sufficient and needs another data source to be tested. This means that they are used to validate indirect inputs, indirect because they don't get to the function directly, but we put our hand to get them there.
+
+The `Spies` do have memory and they are used to record calls made to them. These calls can be consulted to verify if what we're testing has the expected behavior, that is, a specific output after `n` number of calls. Therefore, they are used to verify indirect outputs. Again, indirect because the function that we test doesn't produce these outputs by itself, but is the result of the history stored by the spy.
+
+The `Mocks` are the same as the Spies, with the difference that the former validate that the number of calls is exactly as expected, while the Spies don't care and can be called as many times as needed. They are also known as `Strict Mocks`, since it's common for any simulation of a production object or function to be called as `mock`, but it is more productive to make this distinction as proposed by Gerard Meszaros [here](http://xunitpatterns.com/Test%20Double.html). I will use `mock` to refer in general to these simulations. When I talk about this type, I'll mention it as `strict mock`.
+
+In this first part, we will see how to use these concepts for the case of a surveillance camera to which we don't have direct access, but we know the structure of the APIs that it exposes. In other words, we are going to simulate the behavior of the camera and test that it works properly by using stubs and spies (strict mocks don't apply here). We will use mocks created by us and in the second part we'll see how to do it with Jest.
+
+<TOCInline toc={props.toc} exclude="Introduction" locale={props.locale} asDisclosure />
+
+## Statement
+
+A well-known manufacturer of video surveillance systems has requested us the development of a software for the prototype of a new innovative product they are developing. It is an equipment that has a motion sensor and a recorder. The motion sensor has an API with a single method that returns true when it detects that something has started to move and false when it detects no motion. On the other hand, the recorder has two commands: one to start recording and another one to stop the recording.
+
+Our task will be to design a controller that checks every second if the sensor is detecting motion and if that's so we have to ask the recorder to start the recording, otherwise, it must stop it. The recording must also stop in case any unexpected behavior occurs.
+
+The principal limitation is that the manufacturer doesn't offer us the possibility to access neither the code of the sensor nor the recorder's one, it seems as if they didn't want us to copy their magnificent idea. But at least they provide us their public interfaces:
+
+```ts
+interface MotionSensor {
+  isDetectingMotion(): boolean;
+}
+
+interface VideoRecorder {
+  startRecording(): void;
+  stopRecording(): void;
+}
+```
+
+### Requirements
+
+- Asks the recorder to stop the recording when the sensor detects no motion.
+- Asks the recorder to start the recording when the sensor detects motion.
+- Asks the recorder to stop the recording when the sensor throws an unexpected error.
+- Checks the sensor status once per second.
+
+> To make this exercise, we will use a template that you can find [here](https://github.com/softwarecrafters-io/ts-eslint-prettier-jest)
+
+## First iteration: mocks using Monkey Patching
+
+`Monkey Patching` is a expression that refers to modifying artifacts at runtime. For example, suppose that we have a `car` instance which contains the `stop` method and we want to modify that behavior directly.
+
+```ts
+const car: Car = new Car();
+car.stop = () => console.log("stopping...");
+```
+
+That would be **_monkey patching_**. It is commonly used when creating tests using simulated data because it's a local change that only affects the test in question and because sometimes simulating a behavior in a component adds unnecessary complexity and coupling between the test and the component. For example, if we only wanted to change the `stop` method for the test in question, it would make no sense to create a `CarWithStopModified` class for this purpose only. We may also need to modify this behavior for another test and we would be full of modified `Car` classes.
+
+In the first iteration of the solution of the problem, we will use this technique. The first thing we have to do is create the minimum implementations for the sensor and the recorder, each implementing the given interface. We will do this in a `surveillance-controller.test.ts` file, since initially we will have everything in the same file.
+
+> We will implement the first two cases using our own mocks and then we will use the methods provided by Jest to add the last two
+
+```ts
+// src/tests/surveillance-controller.test.ts
+interface MotionSensor {
+    isDetectingMotion(): boolean;
+}
+
+interface VideoRecorder {
+    startRecording(): void;
+    stopRecording(): void;
+}
+
+class FakeSensor implements MotionSensor {
+    isDetectingMotion(): boolean {
+        return false;
+    }
+}
+
+class FakeVideoRecorder implements VideoRecorder {
+    startRecording() {
+        console.log('start recording...');
+    }
+
+    stopRecording() {
+        console.log('stop recording...');
+    }
+}
+```
+
+`FakeSensor` would be a stub, since it always returns `false` and allows to validate an indirect input. `FakeVideoRecorder` would be more like a `fake object` in this context, because it simulates the behavior of the recorder, but it is not the real one. After this, we will create the skeleton of the test to stop the recording when there is no motion, or, being practical, just check that that method has been invoked using the simulated external dependencies.
+
+```ts
+// src/tests/surveillance-controller.test.ts
+describe('Surveillance Controller', () => {
+    it('asks the recorder to stop recording when the sensor detects no motion', () => {
+        let called = false;
+        const saveCall = () => {
+            called = true;
+        };
+        const sensor = new FakeSensor();
+        const videoRecorder = new FakeVideoRecorder();
+        videoRecorder.stopRecording = saveCall;
+        const controller = new SurveillanceController(sensor, videoRecorder);
+
+        controller.recordMotion();
+
+        expect(called).toBeTruthy();
+    });
+});
+```
+
+What we do here is to define the `Surveillance Controller` test suite and the test to stop the recording if the sensor detects no motion. In this test, we create an instance of `FakeSensor` and one of `FakeVideoRecorder` that will be used by `SurveillanceController`, the controller in charge of determining whether to start or stop the recording (we will implement it in a moment). Since the test aims to validate that the method to stop the recording has been invoked, we use a `called` flag that starts as `false` and is updated to `true` when the method is called.
+
+In order to have control over `stopRecording`, we monkey patch it and assign it `saveCall`, the function that updates `called` to `true`. This way, `saveCall` behaves as a `spy` of `stopRecording`, since it "spies" what happens with this method and allows us to have a record of the calls to the function. `recordMotion` is the trigger of the test, so it has to call `stopRecording` in its implementation to update the value of `called` for the test to pass.
+
+Why do we override `stopRecording`? Because we want it to behave in a certain way for the test, and the test has to be independent from the implementation of `stopRecording`, i. e., a change in the implementation of `stopRecording` must not affect the tests as long as the business rules remain the same. `saveCall` makes the test to only depend on the local implementation and resists the change to the global implementation.
+
+<mark>An improvement over the previous article of the series is that, I learned that the names of the tests have to talk about the business rules and not contain details of the implementation. This way, the domain of the application can be understood just by taking a look at the tests. It is as easy as that the name of the test is a feature or something that you say the application can do.</mark>
+
+To follow the `Red-Green-Refactor`, let's create the skeleton for `SurveillanceController` first.
+
+```ts
+// src/tests/surveillance-controller.test.ts
+class SurveillanceController {
+    constructor(private sensor: MotionSensor, private videoRecorder: VideoRecorder) {}
+
+    recordMotion() {}
+}
+```
+
+This way, there will no longer be syntax errors and when running the tests, they will fail.
+
+![01](/static/images/katas-sustainable-testing-ts/kata-04-video-surveillance/01.png)
+
+Now, to pass the test, let's make the minimum implementation of `recordMotion`, which is calling `this.videoRecorder.stopRecording()`.
+
+```ts
+// src/tests/surveillance-controller.test.ts
+class SurveillanceController {
+    constructor(private sensor: MotionSensor, private videoRecorder: VideoRecorder) {}
+
+    recordMotion() {
+        this.videoRecorder.stopRecording();
+    }
+}
+```
+
+Now, when running the tests, they will pass.
+
+![02](/static/images/katas-sustainable-testing-ts/kata-04-video-surveillance/02.png)
+
+> Treasure these images because they will be the only ones in the article
+
+Now, let's do the test to verify that the recording starts if the sensor detects motion. It is really similar.
+
+```ts
+// src/tests/surveillance-controller.test.ts
+it('asks the recorder to start recording when the sensor detects motion', () => {
+    let called = false;
+    const saveCall = () => {
+        called = true;
+    };
+    const sensor = new FakeSensor();
+    sensor.isDetectingMotion = () => true;
+    const videoRecorder = new FakeVideoRecorder();
+    videoRecorder.startRecording = saveCall;
+    const controller = new SurveillanceController(sensor, videoRecorder);
+
+    controller.recordMotion();
+
+    expect(called).toBeTruthy();
+});
+```
+
+The difference here is that we monkey patch the `isDetectingMotion` method from the sensor too, since the original implementation returns `false`, but now we need that for this test, motion is detected. This would be our stub. In `videoRecorder` the `startRecording` method is altered. Everything else is the same. Now, what remains to be done is modifying the logic of `recordMotion`, so that depending on whether or not there is motion, it starts or stops the recording.
+
+```ts
+// src/tests/surveillance-controller.test.ts
+class SurveillanceController {
+    constructor(private sensor: MotionSensor, private videoRecorder: VideoRecorder) {}
+
+    recordMotion() {
+        if (this.sensor.isDetectingMotion()) {
+            this.videoRecorder.startRecording();
+        } else {
+            this.videoRecorder.stopRecording();
+        }
+    }
+}
+```
+
+Once we make this change, the tests will pass. We can refactor the conditional block and change it for a ternary, since the logic is simple and can be well understood in one line.
+
+```ts
+// src/tests/surveillance-controller.test.ts
+class SurveillanceController {
+    constructor(private sensor: MotionSensor, private videoRecorder: VideoRecorder) {}
+
+    recordMotion() {
+        this.sensor.isDetectingMotion() ? this.videoRecorder.startRecording() : this.videoRecorder.stopRecording();
+    }
+}
+```
+
+## Second iteration: own mocks without Monkey Patching
+
+Let's see how to achieve the same that we have already without using monkey patching. To achieve this, we need to ensure that both the sensor and the video recorder are self-sufficient and ready to be used in the tests, regardless of the test's intention. Let's start with the sensor. Currently, we have this:
+
+```ts
+// src/tests/surveillance-controller.test.ts
+class FakeSensor implements MotionSensor {
+    isDetectingMotion(): boolean {
+        return false;
+    }
+}
+```
+
+If what we need is for this to be self-sufficient, then we need an implementation for `false` and another one for `true` and use each in the corresponding test. Let's improve the name and explicitly mention that it is a stub. Thus, we are left with two stubs: `StubSensorDetectingMotion` and `StubSensorDetectingNoMotion`. These will replace `FakeSensor`.
+
+```ts
+// src/tests/surveillance-controller.test.ts
+class StubSensorDetectingNoMotion implements MotionSensor {
+    isDetectingMotion(): boolean {
+        return false;
+    }
+}
+
+class StubSensorDetectingMotion implements MotionSensor {
+    isDetectingMotion(): boolean {
+        return true;
+    }
+}
+```
+
+We make the changes in the tests:
+
+```ts
+it('asks the recorder to stop recording when the sensor detects no motion', () => {
+    let called = false;
+    const saveCall = () => {
+        called = true;
+    };
+    const sensor = new StubSensorDetectingNoMotion(); // New class
+    const videoRecorder = new FakeVideoRecorder();
+    videoRecorder.stopRecording = saveCall;
+    const controller = new SurveillanceController(sensor, videoRecorder);
+
+    controller.recordMotion();
+
+    expect(called).toBeTruthy();
+});
+
+it('asks the recorder to start recording when the sensor detects motion', () => {
+    let called = false;
+    const saveCall = () => {
+        called = true;
+    };
+    const sensor = new StubSensorDetectingMotion(); // New class
+    const videoRecorder = new FakeVideoRecorder();
+    videoRecorder.startRecording = saveCall;
+    const controller = new SurveillanceController(sensor, videoRecorder);
+
+    controller.recordMotion();
+
+    expect(called).toBeTruthy();
+});
+```
+
+In the case of the second test, the line where we monkey patched `isDetectingMotion` is also removed. If you're absent-minded like me, I remind you that we have to run the tests to see that they still pass after the changes. Once we do this, the recorder is the next one. In this case, we monkey patch the `stopRecording` and `startRecording` methods to update the `called` flag.
+
+This means that a self-sufficient version will be one that handles this logic within the class of the recorder. Since what the test checks for is that the corresponding method has been called, we will need to class attributes, `startCalled` and `stopCalled`, one for each. Both of them will start being `false` and will update when calling the corresponding method. Remember that we have this so far:
+
+```ts
+// src/tests/surveillance-controller.test.ts
+class FakeVideoRecorder implements VideoRecorder {
+    startRecording() {
+        console.log('start recording...');
+    }
+
+    stopRecording() {
+        console.log('stop recording...');
+    }
+}
+```
+
+First, let's rename the class to give it a better name. Now that it will include the logic to handle a record of the calls to the functions, what does it remind us of? Exactly, a spy. Then we will rename it as `SpyVideoRecorder` and we will add the variables.
+
+```ts
+// src/tests/surveillance-controller.test.ts
+class SpyVideoRecorder implements VideoRecorder {
+    startCalled = false;
+    stopCalled = false;
+
+    startRecording() {
+        console.log('start recording...');
+    }
+
+    stopRecording() {
+        console.log('stop recording...');
+    }
+}
+```
+
+Then, we can see that both methods don't do anything important for the tests, so we can delete what they have and update the corresponding variable to indicate that the method was called.
+
+```ts
+// src/tests/surveillance-controller.test.ts
+class SpyVideoRecorder implements VideoRecorder {
+    startCalled = false;
+    stopCalled = false;
+    
+    startRecording() {
+        this.startCalled = true;
+    }
+
+    stopRecording() {
+        this.stopCalled = true;
+    }
+}
+```
+
+That done, the only left thing to do is to refactor the tests. We delete everything related to `called` and `saveCall` and use the corresponding property of `videoRecorder` to do the test. We are left with the following:
+
+```ts
+// src/tests/surveillance-controller.test.ts
+it('asks the recorder to stop recording when the sensor detects no motion', () => {
+    const sensor = new StubSensorDetectingNoMotion();
+    const videoRecorder = new SpyVideoRecorder(); // Nueva clase
+    const controller = new SurveillanceController(sensor, videoRecorder);
+
+    controller.recordMotion();
+
+    expect(videoRecorder.stopCalled).toBeTruthy();
+});
+
+it('asks the recorder to start recording when the sensor detects motion', () => {
+    const sensor = new StubSensorDetectingMotion();
+    const videoRecorder = new SpyVideoRecorder(); // Nueva clase
+    const controller = new SurveillanceController(sensor, videoRecorder);
+
+    controller.recordMotion();
+
+    expect(videoRecorder.startCalled).toBeTruthy();
+});
+```
+
+This would have the disadvantages already mentioned, but for this structure and up to this point it helps to keep the tests simpler without introducing unnecessary complexity in other places. To finish, let's move the controller and the interfaces to another file and import them in our tests file.
+
+```ts
+// src/core/surveillance-controller.ts
+export interface MotionSensor {
+    isDetectingMotion(): boolean;
+}
+
+export interface VideoRecorder {
+    startRecording(): void;
+    stopRecording(): void;
+}
+
+export class SurveillanceController {
+    constructor(private sensor: MotionSensor, private videoRecorder: VideoRecorder) {}
+
+    recordMotion(numberOfSeconds: number = 1) {
+        for(let i = 1; i <= numberOfSeconds; i++) {
+            try {
+                this.sensor.isDetectingMotion() ? this.videoRecorder.startRecording() : this.videoRecorder.stopRecording();
+            } catch (error) {
+                this.videoRecorder.stopRecording();
+            }
+        }
+    }
+}
+```
+
+```ts
+// src/tests/surveillance-controller.test.ts
+import { MotionSensor, SurveillanceController, VideoRecorder } from "../core/surveillance-controller";
+```
+
+## Continuation
+
+You can find the second part [here](https://charlie2code.com/blog/katas-sustainable-testing-ts/kata-04-video-surveillance-part-2).
