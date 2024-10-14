@@ -1,0 +1,328 @@
+---
+title: "Kata 05 con TypeScript: Calculadora de Texto"
+series:
+  order: 6
+  title: "Katas Testing Sostenible con TypeScript"
+date: '2024/10/14'
+lastmod: '2024/10/14'
+language: es
+tags: ['testing', 'tdd', 'javascript', 'typescript']
+authors: ['default']
+draft: false
+featured: false
+summary: En este artículo de la serie "Katas Testing Sostenible con TypeScript", veremos cómo implementar una calculadora de texto diseñada para sumar números usando TDD y Jest.
+---
+
+> Las katas de esta serie son ejercicios propuestos en el excelente curso [Testing Sostenible con TypeScript](https://academy.softwarecrafters.io/p/curso) de Miguel A. Gómez y Carlos Blé
+
+## Introducción
+
+En este artículo, veremos cómo utilizar TDD y Jest para diseñar una calculadora de texto que suma números separados por un delimitador específico.
+
+<TOCInline toc={props.toc} exclude="Introducción" locale={props.locale} asDisclosure />
+
+## Enunciado
+
+Esta kata nos propone la implementación de una función que realiza la suma de los elementos de una expresión que recibe como parámetro en forma de cadena de caracteres. 
+
+Esta expresión tiene algunas particularidades. Veamos los diferentes casos de uso que debemos cubrir:
+
+1. En el caso de recibir `null` o una cadena vacía, la función deberá devolver `0`. Ejemplos: `null` $\Rightarrow$ `0`, `""` $\Rightarrow$ `0`.
+2. En el caso de recibir sólo un número en formato string debe convertirlo a un tipo numérico y devolverlo. Ejemplo: `"1"` $\Rightarrow$ `1`.
+3. En el caso de recibir varios números debe devolver correctamente el resultado de la suma. Los números van a estar separados, por defecto, por comas. Ejemplos: `"1,2"` $\Rightarrow$ `3`, `"1,2,3"` $\Rightarrow$ `6`.
+4. Podría darse el caso de que algunos de los elementos separados por comas fuese un carácter no numérico, como, por ejemplo, una letra. Estos valores no deberían afectar al resultado total. Ejemplos: `"a"` $\Rightarrow$ `0`, `"1,a"` $\Rightarrow$ `1`, `"1,a,2"` $\Rightarrow$ `3`, `"1a, 2"` $\Rightarrow$ `2`.
+5. Por último, la función debe admitir separadores personalizados. Para ello, en la primera parte de la expresión se indicará la configuración. El principio de la configuración vendrá dado por una doble barra inclinada, luego el siguiente carácter sería el separador que ha escogido el usuario y el final de la configuración se indica con otra barra inclinada. Ejemplos: `"//#/3#2"` $\Rightarrow$ `5`, `"//#/3,2"` $\Rightarrow$ `0`, `"//%/1%2%3"` $\Rightarrow$ `6`.
+
+## Creación de la calculadora
+
+Vamos a crear dos archivos: `string-calculator.ts` y `string-calculator.test.ts`. El primero contendrá la función `sumNumbers` y el segundo, las pruebas.
+
+```ts
+// src/core/string-calculator.ts
+export function sumNumbers(input: string) {
+    // implementación aquí
+}
+```
+
+```ts
+// src/tests/string-calculator.test.ts
+import {sumNumbers} from "../core/string-calculator";
+```
+
+Para agrupar nuestras pruebas, vamos a definir una suite que contenga `StringCalculator` como descripción.
+
+```ts
+// src/tests/string-calculator.test.ts
+describe("StringCalculator", () => {
+    // pruebas aquí
+});
+```
+
+Abordaremos los casos del enunciado en el orden en el que se mencionan.
+
+### Caso 1
+
+**1. En el caso de recibir `null` o una cadena vacía, la función deberá devolver `0`.**
+
+Creamos la prueba:
+
+```ts
+// src/tests/string-calculator.test.ts
+it('can handle null and empty strings', () => {
+    expect(sumNumbers(null)).toBe(0);
+    expect(sumNumbers('')).toBe(0);
+});
+```
+
+La implementación mínima sería regresar `0`:
+
+```ts
+// src/core/string-calculator.ts
+export function sumNumbers(input: string) {
+    return 0;
+}
+```
+
+No hay nada por refactorizar.
+
+### Caso 2
+
+**2. En el caso de recibir sólo un número en formato string debe convertirlo a un tipo numérico y devolverlo.**
+
+Creamos la prueba:
+
+```ts
+// src/tests/string-calculator.test.ts
+it('can handle one number', () => {
+    expect(sumNumbers('18')).toBe(18);
+});
+```
+
+La implementación mínima sería que si `input` es `truthy`, entonces debe regresarlo convertido a número.
+
+```ts
+// src/core/string-calculator.ts
+export function sumNumbers(input: string) {
+    if (input) return Number(input);
+
+    return 0;
+}
+```
+
+No hay nada por refactorizar.
+
+### Caso 3
+
+**3. En el caso de recibir varios números debe devolver correctamente el resultado de la suma. Los números van a estar separados, por defecto, por comas.**
+
+Creamos la prueba:
+
+```ts
+// src/tests/string-calculator.test.ts
+it('can handle numbers separated by commas', () => {
+    expect(sumNumbers('5,10,15')).toBe(30);
+});
+```
+
+La implementación mínima sería checar si `input` es `truthy` e incluye la coma. En ese caso, entonces se separa `input` con el método `split` usando la coma como separador y se usa `reduce` para sumar los valores numéricos.
+
+```ts
+// src/core/string-calculator.ts
+export function sumNumbers(input: string) {
+    if (input && input.includes(',')) {
+        return input
+            .split(',')
+            .reduce((accumulator, currentToken) => {
+                return accumulator + Number(currentToken)
+            }, 0);
+    }
+
+    if (input) return Number(input);
+
+    return 0;
+}
+```
+
+Tal vez pienses que esto podría ser más simple porque si `input` es `truthy`, si solo hubiera un caracter, entonces `split(,)` generaría un arreglo de un solo elemento y funcionaría exactamente igual para el caso 2. Es correcto. Por lo tanto, podemos refactorizar la función como sigue:
+
+```ts
+// src/core/string-calculator.ts
+export function sumNumbers(input: string) {
+    if (!input) return 0;
+
+    return input
+      .split(',')
+      .reduce((accumulator, currentToken) => {
+          return accumulator + Number(currentToken)
+      }, 0);
+}
+```
+
+Se invierte el condicional para aplicar el patrón de diseño de [Early Return](https://refactoring.guru/es/replace-nested-conditional-with-guard-clauses).
+
+### Caso 4
+
+**4. Podría darse el caso de que algunos de los elementos separados por comas fuese un carácter no numérico, como, por ejemplo, una letra. Estos valores no deberían afectar al resultado total.**
+
+Creamos la prueba:
+
+```ts
+// src/tests/string-calculator.test.ts
+it('can handle non-numeric values', () => {
+    expect(sumNumbers('a')).toBe(0);
+    expect(sumNumbers('8,a,10')).toBe(18);
+});
+```
+
+La implementación mínima sería checar en el callback de `reduce` si el elemento actual, convertido a número, es un número o no. Si lo es, entonces usa el elemento convertido, si no, usa 0.
+
+```ts
+// src/core/string-calculator.ts
+export function sumNumbers(input: string) {
+    if (!input) return 0;
+
+    return input
+       .split(',')
+       .reduce((accumulator, currentToken) => {
+            const parsedToken = Number(currentToken);
+            const number = isNaN(parsedToken) ? 0 : parsedToken;
+            return accumulator + number;
+        }, 0);
+}
+```
+
+En este punto, que el callback dentro de `reduce` ya es más complejo, es buena idea refactorizarlo y extraerlo a su propia función `sum`.
+
+```ts
+// src/core/string-calculator.ts
+export function sumNumbers(input: string) {
+    if (!input) return 0;
+
+    return input.split(',').reduce(sum, 0);
+}
+
+function sum(accumulator: number, currentToken: string) {
+    const parsedToken = Number(currentToken);
+    const number = isNaN(parsedToken) ? 0 : parsedToken;
+    return accumulator + number;
+}
+```
+
+Podemos mejorar esto todavía más y extraer la conversión y obtención del número a su propia función `parseTokenToNumber`.
+
+```ts
+// src/core/string-calculator.ts
+export function sumNumbers(input: string) {
+    if (!input) return 0;
+
+    return input.split(',').reduce(sum, 0);
+}
+
+function sum(accumulator: number, currentToken: string) {
+    return accumulator + parseTokenToNumber(currentToken);
+}
+
+function parseTokenToNumber(token: string) {
+    const parsedToken = Number(token);
+    return isNaN(parsedToken) ? 0 : parsedToken;
+}
+```
+
+### Caso 5
+
+**5. Por último, la función debe admitir separadores personalizados. Para ello, en la primera parte de la expresión se indicará la configuración. El principio de la configuración vendrá dado por una doble barra inclinada, luego el siguiente carácter sería el separador que ha escogido el usuario y el final de la configuración se indica con otra barra inclinada.**
+
+Llegamos al último caso, el más complejo. Creamos la prueba, utilizando diferentes separadores y un caso donde el separador especificado no es el utilizado entre los números, donde el resultado esperado es simplemente 0.
+
+```ts
+// src/tests/string-calculator.test.ts
+it('can handle custom separators', () => {
+    expect(sumNumbers('//%/5%2')).toBe(7);
+    expect(sumNumbers('//%/4,6')).toBe(0);
+    expect(sumNumbers('//#/4#6')).toBe(10);
+});
+```
+
+La implementación mínima es primero identificar el separador, considerando que si no se especifica uno, se usa por defecto la coma. Luego, solo hay que usar el separador identificado en el método `split`. Finalmente, lo más fácil para utilizar la misma implementación que ya tenemos, es eliminar la configuración del separador personalizado y utilizar solo la cadena con los números separados. Hay diferentes formas de lograrlo, pero a mí me parece más fácil utilizar una expresión regular que busque por el patrón de la configuración y extraer el separador mediante un grupo de captura.
+
+```ts
+// src/core/string-calculator.ts
+export function sumNumbers(input: string) {
+    if (!input) return 0;
+
+    let separator = ',';
+    let numbersString = input;
+
+    const customSeparatorRegex = /^\/\/(.)\//;
+    const customSeparatorMatch = input.match(customSeparatorRegex);
+
+    if (customSeparatorMatch) {
+        separator = customSeparatorMatch[1];
+        numbersString = input.replace(customSeparatorRegex, '');
+    }
+
+    return numbersString.split(separator).reduce(sum, 0);
+}
+
+function sum(accumulator: number, currentToken: string) {
+    return accumulator + parseTokenToNumber(currentToken);
+}
+
+function parseTokenToNumber(token: string) {
+    const parsedToken = Number(token);
+    return isNaN(parsedToken) ? 0 : parsedToken;
+}
+```
+
+Con esto, nuestra función ya pasaría todas las pruebas, y por lo tanto, cumpliría con todos los requisitos. Pero vamos a refactorizar para separar responsabilidades lo más que se pueda. Vamos a crear dos funciones: `extractSeparator` va a extraer el separador utilizando la expresión regular; y `getNumbersString` va a obtener solo la parte de la cadena que contiene los números separados. Debido a que ambas necesitan la expresión regular, vamos a colocarla en una constante global `CUSTOM_SEPARATOR_REGEX`, y ya que estamos, también vamos a colocar la coma en una constante global `DEFAULT_SEPARATOR` para facilitar el cambio del separador por defecto.
+
+```ts
+// src/core/string-calculator.ts
+const DEFAULT_SEPARATOR = ',';
+const CUSTOM_SEPARATOR_REGEX = /^\/\/(.)\//;
+
+export function sumNumbers(input: string) {
+    if (!input) return 0;
+
+    const separator = extractSeparator(input);
+    const numbersString = getNumbersString(input);
+
+    return numbersString.split(separator).reduce(sum, 0);
+}
+
+function sum(accumulator: number, currentToken: string) {
+    return accumulator + parseTokenToNumber(currentToken);
+}
+
+function parseTokenToNumber(token: string) {
+    const parsedToken = Number(token);
+    return isNaN(parsedToken) ? 0 : parsedToken;
+}
+
+function extractSeparator(input: string) {
+    const customSeparatorMatch = input.match(CUSTOM_SEPARATOR_REGEX);
+    return customSeparatorMatch ? customSeparatorMatch[1] : DEFAULT_SEPARATOR;
+}
+
+function getNumbersString(input: string) {
+    return input.replace(CUSTOM_SEPARATOR_REGEX, '');
+}
+```
+
+Así, logramos que cada función tenga una responsabilidad bien definida y el código sea más fácil de entender y mantener.
+
+## Casos más complejos
+
+Los casos que se prueban y que soporta la función no incluyen, por ejemplo, espacios entre los separadores o expresiones mal formadas. Estos casos deberían ser cubiertos, pero el ejercicio lo mantiene lo más sencillo posible. Sin embargo, te invito a cubrir estos casos utilizando los criterios que te parezcan adecuados. Podría ser tan simple como tirar un error con cualquier expresión no cubierta todavía, o tan complicado como "arreglarlas" y obtener la suma.
+
+## Enlace al repositorio de GitHub
+
+Puedes encontrar esta kata, y el resto de ellas, [aquí](https://github.com/carlos-talavera/katas-sustainable-testing-ts).
+
+## Conclusión
+
+Este ejercicio muestra, una vez más, cómo realizar las pruebas primero y las implementaciones después hacen que el proceso de desarrollo sea más fluido. Si bien no hay que tomar el TDD, ni ninguna otra cosa, como un dogma, cuando se puede utilizar trae muchos beneficios. Una cosa más que tal vez no resulte evidente es que la forma correcta de aplicar TDD es partiendo de los casos más simples y dejar los casos más complejos hasta el final. De otra forma, no tendría sentido porque estaríamos tratando de resolver un problema como un todo, en lugar de partirlo en pequeños subproblemas que sean manejables y que al final nos permitan construir una solución para el problema original.
+
+Si te das cuenta, eso es lo que hacemos. Vamos creando pruebas e implementaciones manteniendo la validez de las pruebas anteriores. Entonces, cada prueba e implementación son bloques con los que terminamos construyendo una función robusta, y si usamos bien este enfoque, el resultado también será fácil de mantener.
+
+Gracias por leerme por primera vez o una vez más. Si tienes una duda o quieres compartir algo, déjalo en los comentarios :)
