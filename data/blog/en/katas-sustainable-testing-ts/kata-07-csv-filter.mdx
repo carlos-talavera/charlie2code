@@ -1,0 +1,91 @@
+---
+title: "Kata 07 in TypeScript: CSV Filter"
+series:
+  order: 8
+  title: "Sustainable Testing Katas in TypeScript"
+date: '2024/10/18'
+lastmod: '2024/10/18'
+language: en
+tags: ['testing', 'tdd', 'javascript', 'typescript']
+authors: ['default']
+draft: false
+featured: false
+summary: In this article of the series "Sustainable Testing Katas in TypeScript", we'll analyze the creation of a CSV filter using TDD and Jest.
+---
+
+> The katas of this series are proposed exercises in the excellent course [Testing Sostenible con TypeScript](https://academy.softwarecrafters.io/p/curso) by Miguel A. Gómez and Carlos Blé
+
+## Introduction
+
+Test-Driven Development (TDD) is an essential methodology in the arsenal of any developer who seeks to create robust and maintainable software. Through a practical exercise involving filtering data from a CSV file with invoices information, we can appreciate how TDD does not only facilitates development, but also improves the understanding of business requirements.
+
+In previous articles of this series, we have seen how to use this approach to solve problems step-by-step. However, for reasons of practicality and because I consider that the `Red-Green-Refactor` cycle is already well understood, from this article on what we will do is to delve into the key points, the challenges encountered and the lessons learned. Of course, all this without leaving aside the value that I hope these articles will bring you.
+
+<TOCInline toc={props.toc} exclude="Introduction" locale={props.locale} asDisclosure />
+
+## Breakdown of the Exercise
+
+The objective of this exercise is to process a CSV file containing multiple invoice lines, by applying a set of business rules to determine which lines are valid. Each invoice line, except the header, must meet certain criteria to be considered correct:
+
+- **Empty Fields**. It is valid that some fields are empty, represented by commas in a row or a final comma. This adds flexibility to the data input but it also adds complexity to the validation.
+  
+- **Invoice Number Uniqueness**. Invoice number must be unique. If duplicates are detected, all lines with this number will be deleted. This requires careful analysis of the data to avoid inconsistencies.
+  
+- **Exclusivity of VAT (IVA) and IGIC Taxes**. Only one of these taxes can be applied per line. IVA is a general value-added tax used in many countries, while IGIC is specific to the Canary Islands. If both fields are filled, the line must be discarded, which implies a clear and precise validation logic.
+  
+- **Exclusivity of CIF and NIF Fields**. Similar to the taxes, only one of these identifiers can be present in a valid line. CIF (Código de Identificación Fiscal) and NIF (Número de Identificación Fiscal) are identifiers for legal entities and individuals, respectively, in Spain.
+  
+- **Correct Calculation of Net Amount**. The net field value must correctly result from applying the corresponding tax to the gross amount. This mathematical verification is crucial for ensuring data integrity.
+
+## Challenges and Considerations
+
+### Defining Test Cases
+
+One of the main challenges in (TDD) is defining exhaustive test cases that cover all possible data variations. This exercise focuses on ensuring that the system behaves correctly under various scenarios by including the following test cases:
+
+- **Validation of Correct Invoices**. Verify that lines complying with all specified rules, such as uniqueness and proper tax application, are accepted.
+
+- **Exclusivity Validations**. Ensure that lines containing both taxes (IVA and IGIC) or both identifiers (CIF and NIF) are correctly rejected.
+
+- **Net Amount Calculation**. Confirm that lines with incorrect net amount calculations are identified and removed.
+
+- **Handling Borderline Cases**. Test the system's robustness with edge cases, such as empty files or files containing only a single line.
+
+### Handling Special Cases
+
+It is crucial to anticipate and handle anomalous cases that may arise in the use of the system. Some questions that arise are:
+
+- What happens if a header is missing?
+- What happens if the fields are unordered or there are unknown fields?
+
+These questions not only require a solid technical design, but also a constant communication with the business experts to define clear expectations. This is very important, because when we get stuck with special cases because it is not clear how to face them, what we have to do is to consult the business experts. We shall never assume what seems "reasonable" to us, because every business operates differently.
+
+### Simplicity and Refactoring
+
+As more tests are developed and more rules are implemented, the code can become complex. Continuous refactoring is essential to keep the code clean, readable and easy to maintain. This involves:
+
+- **Use of Explanatory Variables**. Introducing variables that explain the purpose of complex code blocks.
+- **Method Extraction**. Decomposing long functions into smaller and more specific methods.
+- **Methods and Variables Renaming**. Ensuring that names clearly reflect their purpose and content.
+
+## TDD Best Practices
+
+- **Start with Simple Tests**. Start writing tests for the simplest cases and gradually progress to more complex situations. This not only reduces cognitive load, but also allows for incremental and controlled development.
+
+- **Frequent Commits**. Make commits after each passing test or each refactoring is crucial. This allows reverting changes easily if something goes wrong, maintaining a stable workflow. For example, making a commit after creating a test and see it in `Red`, then another commit for `Green` and if applicable, other(s) for `Refactor`, since every small change must be registered. In order to not have a huge commit history, at the end they can me merged into one by using `git squash`. Seen in another way, they would be `microcommits`.
+
+- **Continuous Refactoring**. Don't wait for the code to become unmanageable before refactoring. Making small adjustments continuously keeps the code clean and consistent. 
+
+- **Single-Purpose Tests**. Ensure each test has only one reason to fail. This facilitates the identification of errors and ensures that each test covers a specific case without unnecessary overlaps. 
+
+- **Collaboration with Business Experts**. To make it even clearer. Business rules can be complex and not always obvious. Collaborate with business experts to clarify any doubts and make sure that the tests faithfully reflect business requirements.
+
+## Link to GitHub repository
+
+You can find this kata, and the rest of them, [here](https://github.com/carlos-talavera/katas-sustainable-testing-ts).
+
+## Conclusion
+
+This exercise of filtering invoices in a CSV file through TDD reminds us of the importance of a disciplined and methodical approach in software development. Through a precise definition of business rules and test cases, and with a continuous refactoring, we can create solutions that not only meet the current criteria, but are also easy to maintain and scale in the future. TDD is more than a testing technique; it is a development philosophy that leads to a high-quality code and a deep understanding of the problem that is being solved.
+
+Implementing TDD in practical exercises like this not only improves our technical skills, but also helps us to develop a more systematic approach to address complex problems. At the end of the day, the true value of TDD lies in its ability to transform the way we think about and build software. If you have any question or want to share something, leave it in the comments :)

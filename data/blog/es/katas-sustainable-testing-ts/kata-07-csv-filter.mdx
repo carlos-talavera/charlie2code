@@ -1,0 +1,91 @@
+---
+title: "Kata 07 con TypeScript: Filtro CSV"
+series:
+  order: 8
+  title: "Katas Testing Sostenible con TypeScript"
+date: '2024/10/18'
+lastmod: '2024/10/18'
+language: es
+tags: ['testing', 'tdd', 'javascript', 'typescript']
+authors: ['default']
+draft: false
+featured: false
+summary: En este artículo de la serie "Katas Testing Sostenible con TypeScript", analizaremos la creación de un filtro de CSV usando TDD y Jest.
+---
+
+> Las katas de esta serie son ejercicios propuestos en el excelente curso [Testing Sostenible con TypeScript](https://academy.softwarecrafters.io/p/curso) de Miguel A. Gómez y Carlos Blé
+
+## Introducción
+
+El desarrollo guiado por pruebas (TDD) es una metodología esencial en el arsenal de cualquier desarrollador que busca crear software robusto y mantenible. A través de un ejercicio práctico que involucra la filtración de datos de un archivo CSV con información de facturas, podemos apreciar cómo TDD no solo facilita el desarrollo, sino que también mejora la comprensión de los requisitos de negocio.
+
+En artículos anteriores de esta serie, hemos visto cómo utilizar este enfoque para resolver problemas paso a paso. Sin embargo, por temas de practicidad y porque considero que el ciclo `Red-Green-Refactor` ya está bien entendido, a partir de este artículo lo que haremos es profundizar en los puntos clave, los desafíos encontrados y las lecciones aprendidas. Claro, todo esto sin dejar de lado el valor que espero que estos artículos te aporten.
+
+<TOCInline toc={props.toc} exclude="Introducción" locale={props.locale} asDisclosure />
+
+## Desglose del Ejercicio
+
+El objetivo del ejercicio es procesar un archivo CSV que contiene múltiples líneas de facturas, aplicando un conjunto de reglas de negocio para determinar qué líneas son válidas. Cada línea de factura, excepto la cabecera, debe cumplir con ciertas condiciones para ser considerada correcta:
+
+- **Campos Vacíos**. Es válido que algunos campos estén vacíos, representados por comas seguidas o una coma final. Esto añade flexibilidad a la entrada de datos pero también complejidad a la validación.
+  
+- **Unicidad del Número de Factura**. El número de factura debe ser único. Si se detectan duplicados, todas las líneas con dicho número deben ser eliminadas. Esto requiere un análisis cuidadoso de los datos para evitar inconsistencias.
+  
+- **Exclusividad de Impuestos IVA e IGIC**. Solo uno de estos impuestos puede aplicarse por línea. El IVA es un impuesto general de valor agregado usado en muchos países, mientras que el IGIC es específico de las Islas Canarias. Si ambos campos están rellenos, la línea debe ser descartada, lo que implica una lógica de validación clara y precisa.
+  
+- **Exclusividad de Campos CIF y NIF**. Similar a los impuestos, solo uno de estos identificadores puede estar presente en una línea válida. CIF (Código de Identificación Fiscal) y NIF (Número de Identificación Fiscal) son identificadores usados para entidades legales e individuos, respectivamente, en España.
+  
+- **Cálculo Correcto del Neto**. El valor del campo neto debe ser el resultado correcto de aplicar el impuesto correspondiente al bruto. Esta verificación matemática es crucial para asegurar la integridad de los datos.
+
+## Retos y Consideraciones
+
+### Definición de Casos de Prueba
+
+Uno de los principales desafíos en TDD es definir casos de prueba exhaustivos que cubran todas las variaciones de datos posibles. Este ejercicio se centra en asegurar que el sistema se comporte correctamente bajo varios escenarios, incluyendo los siguientes casos de prueba:
+
+- **Validación de Facturas Correctas**. Verificar que las líneas que cumplen con todas las reglas especificadas, como la unicidad y la aplicación correcta de impuestos, sean aceptadas.
+
+- **Validaciones de Exclusividad**. Asegurar que las líneas que contienen ambos impuestos (IVA e IGIC) o ambos identificadores (CIF y NIF) sean rechazadas correctamente.
+
+- **Cálculo del Importe Neto**. Confirmar que las líneas con cálculos incorrectos del importe neto sean identificadas y eliminadas.
+
+- **Manejo de Casos Limítrofes**. Probar la robustez del sistema con casos extremos, como archivos vacíos o archivos que contienen solo una línea.
+
+### Manejo de Casos Especiales
+
+Es crucial anticipar y manejar casos anómalos que podrían surgir en el uso del sistema. Algunas preguntas que surgen son:
+
+- ¿Qué sucede si la cabecera está ausente?
+- ¿Qué pasa si los campos están desordenados o hay campos desconocidos?
+
+Estas preguntas no solo requieren un diseño técnico sólido, sino también una comunicación constante con los expertos de negocio para definir expectativas claras. Esto es muy importante, ya que cuando nos atoramos con casos especiales porque no es claro cómo afrontarlos, lo que hay que hacer es consultar a los expertos de negocio. Jamás hay que asumir lo que nos parezca "razonable", pues cada negocio opera de manera distinta.
+
+### Simplicidad y Refactorización
+
+A medida que se desarrollan más pruebas y se implementan más reglas, el código puede volverse complejo. La refactorización continua es esencial para mantener el código limpio, legible y fácil de mantener. Esto implica:
+
+- **Uso de Variables Explicativas**. Introducir variables que expliquen el propósito de bloques de código complejos.
+- **Extracción de Métodos**. Descomponer funciones largas en métodos más pequeños y específicos.
+- **Renombrado de Métodos y Variables**. Asegurarse de que los nombres reflejen claramente su propósito y contenido.
+
+## Buenas Prácticas en TDD
+
+- **Inicio con Pruebas Simples**. Comienza escribiendo pruebas para los casos más simples y avanza gradualmente hacia situaciones más complejas. Esto no solo reduce la carga cognitiva, sino que también permite un desarrollo incremental y controlado.
+
+- **Commits Frecuentes**. Realizar commits después de cada prueba que pasa o cada refactorización es crucial. Esto permite revertir cambios fácilmente si algo sale mal, manteniendo el flujo de trabajo estable. Por ejemplo, hacer un commit después de crear una prueba y verla en `Red`, luego otro commit para `Green` y si aplica, otro(s) para `Refactor`, ya que cada pequeño cambio debe ser registrado. Para no tener un historial gigante de commits, al final pueden combinarse en uno usando `git squash`. Visto de otra forma, serían `microcommits`.
+
+- **Refactorización Continua**. No esperes a que el código se vuelva inmanejable para refactorizar. Hacer pequeños ajustes continuamente mantiene el código limpio y coherente.
+
+- **Pruebas con Propósito Único**. Asegúrate de que cada prueba tenga un único motivo para fallar. Esto facilita la identificación de errores y asegura que cada prueba cubre un caso específico sin superposiciones innecesarias.
+
+- **Colaboración con Expertos de Negocio**. Para dejarlo todavía más claro. Las reglas de negocio pueden ser complejas y no siempre obvias. Colabora con los expertos para aclarar cualquier duda y asegurarte de que las pruebas reflejan fielmente los requisitos del negocio.
+
+## Enlace al repositorio de GitHub
+
+Puedes encontrar esta kata, y el resto de ellas, [aquí](https://github.com/carlos-talavera/katas-sustainable-testing-ts).
+
+## Conclusión
+
+Este ejercicio de filtrar facturas en un archivo CSV mediante TDD nos recuerda la importancia de un enfoque disciplinado y metódico en el desarrollo de software. Mediante la definición precisa de reglas de negocio y casos de prueba, y con una refactorización continua, podemos crear soluciones que no solo cumplen con los requisitos actuales, sino que también son fáciles de mantener y escalar en el futuro. TDD es más que una técnica de prueba; es una filosofía de desarrollo que guía hacia un código de alta calidad y un entendimiento profundo del problema que se está resolviendo.
+
+Implementar TDD en ejercicios prácticos como este no solo mejora nuestras habilidades técnicas, sino que también nos ayuda a desarrollar un enfoque más sistemático para abordar problemas complejos. Al final del día, el verdadero valor de TDD radica en su capacidad para transformar la manera en que pensamos y construimos software. Si tienes alguna duda o quieres compartir algo, déjalo en los comentarios :)
