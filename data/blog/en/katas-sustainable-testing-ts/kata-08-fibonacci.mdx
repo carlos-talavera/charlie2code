@@ -1,0 +1,97 @@
+---
+title: "Kata 08 in TypeScript: Fibonacci"
+series:
+  order: 9
+  title: "Sustainable Testing Katas in TypeScript"
+date: '2024/10/19'
+lastmod: '2024/10/19'
+language: en
+tags: ['testing', 'tdd', 'javascript', 'typescript']
+authors: ['default']
+draft: false
+featured: false
+summary: En este artículo de la serie "Sustainable Testing Katas in TypeScript", analizaremos la creación de una función que calcula el enésimo número de Fibonacci usando TDD y Jest.
+---
+
+> The katas of this series are proposed exercises in the excellent course [Testing Sostenible con TypeScript](https://academy.softwarecrafters.io/p/curso) by Miguel A. Gómez and Carlos Blé
+
+## Introduction
+
+The [Fibonacci sequence](https://www.cuemath.com/numbers/fibonacci-sequence/) is a fascinating mathematical sequence, with applications that range from biology to informatics. In this article, we will explore how to apply TDD to implement a function that calculates the nth [Fibonacci](https://www.thoughtco.com/leonardo-pisano-fibonacci-biography-2312397) number. We will see how the development patterns known as [Green Bar Patterns](https://www.tddbuddy.com/references/green-bar-patterns.html), proposed by [Kent Beck](https://londonspeakerbureau.com/speaker-profile/kent-beck/), guide us to an effective solution.
+
+<TOCInline toc={props.toc} exclude="Introduction" locale={props.locale} asDisclosure />
+
+## Fibonacci Sequence
+
+The Fibonacci sequence starts with the numbers 0 and 1, and each subsequent number is the sum of the previous two: 0, 1, 1, 2, 3, 5, 8, and so on. This sequence, popularized in Europe by the Italian mathematician Fibonacci, is a classic example of exponential growth and it is found in various areas of study.
+
+Our goal is to build a `fibonacci` function which, given an integer number `n`, returns the nth Fibonacci number. We use TDD not only to ensure that our implementation is correct, but also to illustrate the `Green Bar Patterns`.
+
+## Green Bar Patterns
+
+To keep the article brief, we will see the implementations and the tests will be understood from the examples.
+
+### Fake Implementation
+
+We start with a fake implementation to make a test pass quickly. For example, for `fibonacci(0)`, we simply return 0.
+
+```ts
+function fibonacci(number: number) {
+  return 0;
+}
+```
+
+### Triangulation
+
+By adding more test cases, we use triangulation to refine our implementation. This pattern helps us to generalize the solution from specific cases. For example, we handle `fibonacci(1)` by returning 1 and then we verify that `fibonacci(2)` is the sum of the previous two.
+
+```ts
+function fibonacci(number: number) {
+  if (number === 0) return 0;
+  return 1;
+}
+```
+
+This would work for `fibonacci(2)` because:
+
+`fibonacci(2)` $=$ `1`
+
+`fibonacci(2)` $=$ `fibonacci(1)` $+$ `fibonacci(0)` $=$ `1` $+$ `0` $=$ `1`
+
+### Obvious Implementation
+
+As we add more cases, we move on to a recursive implementation that reflects the mathematical definition of Fibonacci. This allows us to handle any number in the sequence.
+
+```ts
+export function fibonacci(number: number) {
+  if (number === 0) return 0;
+  if (number === 1) return 1;
+  return fibonacci(number - 1) + fibonacci(number - 2);
+}
+```
+
+It may seem odd that the obvious implementation is not necessarily of one line or very short, but in this case, by implementing a function that follows a mathematical definition, it is possible to say that it is trivial to translate this definition into a function.
+
+It is also important to mention that if we know the obvious implementation, we have to use it and there is no need for us to go through fake implementation or triangulation.
+
+### One to Many
+
+This pattern is the last one. It doesn't apply here, since it is used when we have data collections and we start from the case of a single element and at the end we generalize for many. But it is good for us to know it because by understanding it, it is obvious that the solution to a problem of this type is easier to reach if we take a specific case to build the general case. This is what is known in logic as **induction**.
+
+## Challenges Encountered
+
+- **Recursion Efficiency.** Recursion is clear and direct, but it can be inefficient for big numbers because of redundant calculations. Considering memoization or an iterative implementation is key to improve performance.
+
+- **Exhaustive Test Coverage.** Ensuring that all variations, from the base cases to higher numbers, are covered by tests is crucial for code robustness.
+
+- **Continuous Refactoring.** Keeping the code clean and modular is essential. It is common that we initially place implementations and tests in the same file, so this process involves moving the `fibonacci` function out of the file containing the tests, in addition to optimizing the code structure.
+
+## Link to GitHub repository
+
+You can find this kata, and the rest of them, [here](https://github.com/carlos-talavera/katas-sustainable-testing-ts).
+
+## Conclusion
+
+This exercise of implementing the Fibonacci sequence using TDD provides us a valuable opportunity to practice development patterns and face common programming challenges. Through the fake implementation, triangulation, the obvious implementation and the one-to-many approach, we not only achieve the right solution, but also refine our ability to think in a systematic and disciplined way. That's why by applying these patterns and practices, we can address complex problems with confidence and clarity.
+
+I hope this article has helped you to understand these patterns. If you have a question or want to share something, leave it in the comments :)

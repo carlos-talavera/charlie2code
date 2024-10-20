@@ -1,0 +1,97 @@
+---
+title: "Kata 08 con TypeScript: Fibonacci"
+series:
+  order: 9
+  title: "Katas Testing Sostenible con TypeScript"
+date: '2024/10/19'
+lastmod: '2024/10/19'
+language: es
+tags: ['testing', 'tdd', 'javascript', 'typescript']
+authors: ['default']
+draft: false
+featured: false
+summary: En este artículo de la serie "Katas Testing Sostenible con TypeScript", analizaremos la creación de una función que calcula el enésimo número de Fibonacci usando TDD y Jest.
+---
+
+> Las katas de esta serie son ejercicios propuestos en el excelente curso [Testing Sostenible con TypeScript](https://academy.softwarecrafters.io/p/curso) de Miguel A. Gómez y Carlos Blé
+
+## Introducción
+
+La [serie de Fibonacci](https://www.cuemath.com/numbers/fibonacci-sequence/) es una sucesión matemática fascinante, con aplicaciones que abarcan desde la biología hasta la informática. En este artículo, exploraremos cómo aplicar TDD para implementar una función que calcula el enésimo número de [Fibonacci](https://www.thoughtco.com/leonardo-pisano-fibonacci-biography-2312397). Veremos cómo los patrones de desarrollo conocidos como [Green Bar Patterns](https://www.tddbuddy.com/references/green-bar-patterns.html), propuestos por [Kent Beck](https://londonspeakerbureau.com/speaker-profile/kent-beck/), nos guían hacia una solución efectiva.
+
+<TOCInline toc={props.toc} exclude="Introducción" locale={props.locale} asDisclosure />
+
+## Serie de Fibonacci
+
+La serie de Fibonacci comienza con los números 0 y 1, y cada número subsiguiente es la suma de los dos anteriores: 0, 1, 1, 2, 3, 5, 8, y así sucesivamente. Esta secuencia, popularizada en Europa por el matemático italiano Fibonacci, es un ejemplo clásico de crecimiento exponencial y se encuentra en diversas áreas de estudio.
+
+Nuestro objetivo es construir una función `fibonacci` que, dado un número entero `n`, devuelva el enésimo número de Fibonacci. Utilizamos TDD no solo para asegurar que nuestra implementación es correcta, sino también para ilustrar los `Green Bar Patterns`.
+
+## Green Bar Patterns
+
+Para mantener el artículo breve, veremos las implementaciones y las pruebas se sobreentenderán a partir de los ejemplos.
+
+### Implementación Fake
+
+Comenzamos con una implementación falsa para hacer que una prueba pase rápidamente. Por ejemplo, para `fibonacci(0)`, simplemente devolvemos 0.
+
+```ts
+function fibonacci(number: number) {
+  return 0;
+}
+```
+
+### Triangulación
+
+Al agregar más casos de prueba, utilizamos la triangulación para refinar nuestra implementación. Este patrón nos ayuda a generalizar la solución a partir de casos específicos. Por ejemplo, manejamos `fibonacci(1)` devolviendo 1 y luego verificamos que `fibonacci(2)` sea la suma de los dos anteriores.
+
+```ts
+function fibonacci(number: number) {
+  if (number === 0) return 0;
+  return 1;
+}
+```
+
+Esto funcionaría para `fibonacci(2)` porque:
+
+`fibonacci(2)` $=$ `1`
+
+`fibonacci(2)` $=$ `fibonacci(1)` $+$ `fibonacci(0)` $=$ `1` $+$ `0` $=$ `1`
+
+### Implementación Obvia
+
+A medida que añadimos más casos, pasamos a una implementación recursiva que refleja la definición matemática de Fibonacci. Esto nos permite manejar cualquier número en la secuencia.
+
+```ts
+export function fibonacci(number: number) {
+  if (number === 0) return 0;
+  if (number === 1) return 1;
+  return fibonacci(number - 1) + fibonacci(number - 2);
+}
+```
+
+Puede parecer extraño que la implementación obvia no sea necesariamente de una línea o muy corta, pero en este caso, al implementar una función que sigue una definición matemática, es posible decir que es trivial plasmar esta definición en una función.
+
+De igual manera es importante mencionar que si conocemos la implementación obvia, hay que usarla y no hay necesidad de pasar por la implementación fake ni la triangulación.
+
+### Uno a Muchos
+
+Este patrón es el último. No aplica aquí, pues se utiliza cuando tenemos colecciones de datos y partimos del caso de un solo elemento y al final generalizamos para muchos. Pero es bueno conocerlo porque al entenderlo, resulta obvio que la solución de un problema de este tipo sea más fácil de alcanzar si tomamos un caso específico para construir el caso general. Esto es lo que se conoce en lógica como **inducción**.
+
+## Retos Encontrados
+
+- **Eficiencia de la Recursión.** La recursión es clara y directa, pero puede ser ineficiente para números grandes debido a cálculos redundantes. Considerar la memoización o una implementación iterativa es clave para mejorar el rendimiento.
+
+- **Cobertura Exhaustiva de Pruebas.** Asegurar que todas las variaciones, desde los casos base hasta números más altos, estén cubiertas por pruebas es crucial para la robustez del código.
+
+- **Refactorización Continua.** Mantener el código limpio y modular es esencial. Es común que inicialmente coloquemos implementaciones y pruebas en el mismo archivo, por lo que este proceso incluye mover la función `fibonacci` fuera del archivo que contiene las pruebas, además de optimizar la estructura del código.
+
+## Enlace al repositorio de GitHub
+
+Puedes encontrar esta kata, y el resto de ellas, [aquí](https://github.com/carlos-talavera/katas-sustainable-testing-ts).
+
+## Conclusión
+
+El ejercicio de implementar la serie de Fibonacci utilizando TDD nos proporciona una valiosa oportunidad para practicar patrones de desarrollo y enfrentar desafíos comunes en la programación. A través de la implementación fake, la triangulación, la implementación obvia y el enfoque de uno a muchos, no solo logramos una solución correcta, sino que también refinamos nuestra habilidad para pensar de manera sistemática y disciplinada. Es por eso que al aplicar estos patrones y prácticas, podemos abordar problemas complejos con confianza y claridad.
+
+Espero que este artículo te haya ayudado a entender estos patrones. Si tienes alguna duda o quieres compartir algo, déjalo en los comentarios :)
