@@ -1,0 +1,170 @@
+---
+title: "Kata 09 in TypeScript: Prime Factors"
+series:
+  order: 10
+  title: "Sustainable Testing Katas in TypeScript"
+date: '2024/10/20'
+lastmod: '2024/10/20'
+language: en
+tags: ['testing', 'tdd', 'javascript', 'typescript']
+authors: ['default']
+draft: false
+featured: false
+summary: In this article of the series "Sustainable Testing Katas in TypeScript", we'll analyze the creation of a function that obtains the prime factors of a number using TDD and Jest.
+---
+
+> The katas of this series are proposed exercises in the excellent course [Testing Sostenible con TypeScript](https://academy.softwarecrafters.io/p/curso) by Miguel A. Gómez and Carlos Blé
+
+## Introduction
+
+In this article, we will explore how to decompose a natural number into its prime factors using TDD along with the [Transformation Priority Premise](https://blog.cleancoder.com/uncle-bob/2013/05/27/TheTransformationPriorityPremise.html), proposed by Kent Beck. We will focus on identifying the key points and talking about the learnings that help us to improve our software development process.
+
+<TOCInline toc={props.toc} exclude="Introduction" locale={props.locale} asDisclosure />
+
+## Statement
+
+The goal is to implement a function, `getPrimeFactorsFor`, which receives a natural number and returns an array with its prime factors, sorted from smallest to largest. We will rely on TDD and TPP to guide every step of the development, ensuring that our code is robust and extensible. 
+
+## Developing the Solution
+
+### Defining Basic Behavior
+
+We start by writing a simple test. The first case that we cover is the smallest number, 2, which should return an array with the number itself as its only prime factor.
+
+```ts
+describe('The prime factors', () => {
+  it('finds the prime composition of the given number', () => {
+    expect(getPrimeFactorsFor(2)).toEqual([2]);
+  });
+});
+```
+
+> This will be the only test that will be explicitly mentioned in the article. At the end is the link to the repository with the code so you can check the full implementation
+
+The initial code simply returns the expected result for 2. This is the most basic solution that satisfies our first test.
+
+```ts
+function getPrimeFactorsFor(number: number) {
+  return [2];
+}
+```
+
+### Applying TPP: From Constant to Variable
+
+The TPP suggests us to make small transformations. We go from returning a constant to using a variable:
+
+```ts
+function getPrimeFactorsFor(number: number) {
+  const factors = [2];
+  return factors;
+}
+```
+
+This prepares us to handle numbers that have more than one prime factor, such as 4, which results in `[2, 2]`.
+
+### Introducing Conditionals
+
+In order to handle 4, we introduce a conditional that evaluates if the number is divisible by 2 more than once:
+
+```ts
+function getPrimeFactorsFor(number: number) {
+  const factors = [2];
+  if (number / 2 > 1) {
+    factors.push(2);
+  }
+  return factors;
+}
+```
+
+If you find it hard to understand at first sight as happened to me, what happens here is that if the number is large enough so that when you divide it by 2 we have more than 1 "left over", then there's at least room for another 2 in its prime factors.
+
+### Evolving to Recursion
+
+To handle cases like 8, we move towards recursion. Recursion allows us to decompose the problem in an effective way:
+
+```ts
+function getPrimeFactorsFor(number: number) {
+  const factor = 2;
+  const factors = [factor];
+  const remainder = number / factor;
+  if (remainder > 1) {
+    return factors.concat(getPrimeFactorsFor(remainder));
+  }
+  return factors;
+}
+```
+
+Why recursion? Because by "splitting" the 8 into two parts, now we have left the same than obtaining the prime factors for 4, and then the prime factors for 2. At the end we join each result in a single array and we obtain the prime factors of 8. These factors will be sorted because we have to remember that when using recursion, the first result that is obtained is the that from the last call to the function, so until we get to the base case, these calls begin to resolve.
+
+### Generalizing with Loops
+
+For more complex numbers, such as 3, 5, or 7, we use a loop that increases the prime factor until it finds one that divides the number:
+
+```ts
+function getPrimeFactorsFor(number: number) {
+  let factor = 2;
+  while (number % factor !== 0) {
+    ++factor;
+  }
+  const factors = [factor];
+  const remainder = number / factor;
+  if (remainder > 1) {
+    return factors.concat(getPrimeFactorsFor(remainder));
+  }
+  return factors;
+}
+```
+
+Why a loop? Because now we need to advance the factor by the which we divide the given number, only that way we will know if 2, 3, or any other number is a prime factor. How do we make sure that they are prime factors? If we take a look at the loop, there's nothing preventing the factor from being 4, for example, which is not a prime number. But the trick is that if the number is not divisible by 2, then it will not be divisible by 4 or by any multiple of 2. The same applies to 3, 6 and others. This way, we are only left with the smallest number or the first one we find from the various "collections" of multiples. Therefore, this number will always be prime.
+
+### Final Refactoring and Handling of Special Cases
+
+Once the basic functionality is done, we refactor to improve clarity and handle special cases, such as negative numbers or zero. First, we ensure that the function only accepts positive numbers through an auxiliary function:
+
+```ts
+function checkForPositiveNumber(number: number) {
+  if (number < 1) throw new Error('Only positive numbers are allowed');
+}
+```
+
+Then, we make the full refactoring to separate logic into smaller, clearer functions:
+
+```ts
+export function getPrimeFactorsFor(number: number) {
+    checkForPositiveNumber(number);
+    return primeFactors(number);
+}
+
+function primeFactors(number: number) {
+    const prime = findSmallestPrime(number);
+    const remainder = number / prime;
+    return remainder <= 1 ? [prime] : [prime].concat(getPrimeFactorsFor(remainder));
+}
+
+function findSmallestPrime(number: number) {
+    if (number === 1) return 1;
+    let factor = 2;
+    while (number % factor !== 0) {
+        ++factor;
+    }
+    return factor;
+}
+```
+
+## Key Concepts and Transformations
+
+- **Controlled Iteration.** We start with simple cases and move towards more complex situations. Every step is guided by tests that validate the functionality. 
+
+- **Recursion over Iteration.** We introduce recursin before iteration, following TPP suggestions, which simplifies the logic and facilitates handling of complex cases.
+
+- **Refactoring and Clarity.** At the end, we refactor to improve code readability and clarity, separating responsibilities in independent functions.
+
+## Link to GitHub repository
+
+You can find this kata, and the rest of them, [here](https://github.com/carlos-talavera/katas-sustainable-testing-ts).
+
+## Conclusion
+
+This exercise shows us how TDD and TPP can guide us in the development of robust and elegant solutions. By focusing on incremental steps and code simplicity, we built a function that correctly handles a variety of scenarios. While TPP can be taken as a dogma and it is not always possible or useful to apply transformations in the order proposed by Kent Beck, this approach helps us not only to improve software quality, but also to facilitate its evolution and maintenance. In addition, in my opinion, it gives us ideas that allow us to better understand what we have to do if we get stuck trying to apply TDD.
+
+Thank you for reading me once again and I hope with this you can understand how TPP helps us to develop software through TDD (it is easy to confuse the acronyms because they are very similar, I know). If you have a question or want to share something, leave it in the comments :)
