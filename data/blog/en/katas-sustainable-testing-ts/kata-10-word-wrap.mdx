@@ -1,0 +1,251 @@
+---
+title: "Kata 10 in TypeScript: Word Wrap"
+series:
+  order: 11
+  title: "Sustainable Testing Katas in TypeScript"
+date: '2024/10/21'
+lastmod: '2024/10/21'
+language: en
+tags: ['testing', 'tdd', 'javascript', 'typescript']
+authors: ['default']
+draft: false
+featured: false
+summary: In this article of the series "Sustainable Testing Katas in TypeScript", we'll analyze the creation of a word wrap functionality using TDD y Jest.
+---
+
+> The katas of this series are proposed exercises in the excellent course [Testing Sostenible con TypeScript](https://academy.softwarecrafters.io/p/curso) by Miguel A. Gómez and Carlos Blé
+
+## Introduction
+
+In this article, we will see the implementation of the `word wrap` algorithm. This algorithm is essential to adjust text lines within a specific column width, a common feature in many text editors. Through TDD, we will build our solution in an incremental way, guaranteeing that each step is validated by automated tests. 
+
+<TOCInline toc={props.toc} exclude="Introduction" locale={props.locale} asDisclosure />
+
+## Statement
+
+The goal is to implement a `wordWrap` function which receives a text and a column width, and returns the text adjusted to the specified width. During the development, we will face several challenges, such as handling whitespaces, null texts and negative column widths.
+
+- `wordWrap('',5)` $\Rightarrow$ `''`
+- `wordWrap('hello',5)` $\Rightarrow$ `'hello'`
+- `wordWrap('longword',4)` $\Rightarrow$ `'long\nword'`
+- `wordWrap('reallylongword',4)` $\Rightarrow$ `'real\nlylo\nngwo\nrd'`
+- `wordWrap('abc def',4)` $\Rightarrow$ `'abc\ndef'`
+- `wordWrap('abc def ghi',4)` $\Rightarrow$ `'abc\ndef\nghi'`
+- `wordWrap(' abcdf',4)` $\Rightarrow$ `'\nabcd\nf'`
+- `wordWrap(null,5)` $\Rightarrow$ `''`
+- `wordWrap('hello',-5)` $\Rightarrow$ `throw exception`
+
+## Developing the Solution
+
+### Start by Simple Cases
+
+We start with the simplest case: a text that doesn't need to be wrapped because its length is less than or equal to the column width. This is the starting point for any TDD implementation: start with the simplest possible test.
+
+```ts
+describe('The Word Wrap', () => {
+  it('makes every single line of text fit column width', () => {
+    expect(wordWrap('hello', 5)).toBe('hello');
+  });
+});
+```
+
+> Similar to the previous article, only this test will be showed explicitly. The rest of them can be inferred from the examples showed in the statement
+
+For this test to pass, our initial function will simply return the text unchanged:
+
+```ts
+function wordWrap(text: string, columnWidth: number) {
+  return text;
+}
+```
+
+### Introducing Conditionals
+
+Now we have to handle a text that exceeds the column width. Here, we introduce conditionals to determine when we have to divide the text.
+
+```ts
+function wordWrap(text: string, columnWidth: number) {
+  if (text.length > columnWidth) {
+    return text.substring(0, columnWidth) + '\n' + text.substring(columnWidth);
+  }
+  return text;
+}
+```
+
+### Progressing towards Recursion
+
+When the text requires multiple divisions, a recursive implementation can simplify the problem. Recursion allows us to treat each segment as a new adjustment problem.
+
+```ts
+function wordWrap(text: string, columnWidth: number) {
+  if (text.length <= columnWidth) {
+    return text;
+  }
+  const wrappedText = text.substring(0, columnWidth) + '\n';
+  const unwrappedText = text.substring(columnWidth);
+  return wrappedText + wordWrap(unwrappedText, columnWidth);
+}
+```
+
+The conditional is inverted to prioritize the `early return` of the simplest behavior, that is, returning the same text is its length is less than or equal to the column width. This way the recursive logic is not nested and it is easier to understand.
+
+On the other hand, the recursion implementation process is made easier when using explicative variables. If we take a look at it, the only thing we're doing is adding the "leftover" of the text to the part that has already been adjusted.
+
+### Handling Spaces
+
+Spaces are an important aspect in word wrap. We want to prioritize that the cut occurs in the spaces to improve readability. That is, prioritize spaces over column width. 
+
+```ts
+function wordWrap(text: string, columnWidth: number) {
+  if (text.length <= columnWidth) {
+    return text;
+  }
+  const indexOfSpace = text.lastIndexOf(' ', columnWidth);
+  const wrapIndex = indexOfSpace > -1 ? indexOfSpace : columnWidth;
+  const wrappedText = text.substring(0, wrapIndex) + '\n';
+  const unwrappedText = text.substring(wrapIndex).trim();
+  return wrappedText + wordWrap(unwrappedText, columnWidth);
+}
+```
+
+We must use the `trim` method in `unwrappedText` because the first character is a whitespace, so this way we get rid of it.
+
+### Special Cases
+
+We add support for special cases such as null or undefined text or a negative column width, in which case, the function must throw an error.
+
+```ts
+function wordWrap(text: string, columnWidth: number) {
+  if (columnWidth < 0) {
+    throw new Error('Negative column width is not allowed');
+  }
+  if (text == null) {
+    return '';
+  }
+  if (text.length <= columnWidth) {
+    return text;
+  }
+  const indexOfSpace = text.lastIndexOf(' ', columnWidth);
+  const wrapIndex = indexOfSpace > -1 ? indexOfSpace : columnWidth;
+  const wrappedText = text.substring(0, wrapIndex) + '\n';
+  const unwrappedText = text.substring(wrapIndex).trim();
+  return wrappedText + wordWrap(unwrappedText, columnWidth);
+}
+```
+
+If this confuses you, `text == null` is a non-strict comparison, so it works for both `null` and `undefined`.
+
+## Final Refactoring
+
+At this point, the function would already pass all tests. However, it does many things at once, in addition to the fact that the `primitive obsession code smell` is produced, since we're extending the behavior of primitive data by throwing errors and performing different validations. That is, we rely heavily on a primitive which is not intended to give us that level of security and flexibility in the code. To simplify this, it is necessary to resort to `value objects`, which are immutable objects that allow us to make a clear separation of responsibilities and handle special cases without creating a strong coupling with primitives. Below is the complete refactoring and the summary of this process:
+
+```ts
+export class ColumnWidth {
+    private constructor(private readonly width: number) {}
+
+    static create(width: number) {
+        if (width < 0) {
+            throw new Error('Negative column width is not allowed');
+        }
+        return new ColumnWidth(width);
+    }
+
+    value() {
+        return this.width;
+    }
+}
+
+export class WrappableText {
+    private constructor(private readonly text: string) { }
+
+    static create(text: string) {
+        if (text == null) {
+            return new WrappableText('');
+        }
+        return new WrappableText(text);
+    }
+
+    wordWrap(columnWidth: ColumnWidth) {
+        if (this.fitsIn(columnWidth)) {
+            return WrappableText.create(this.text);
+        }
+        const wrappedText = this.wrappedText(columnWidth);
+        const unwrappedText = this.unwrappedText(columnWidth);
+        return wrappedText.concat(unwrappedText.wordWrap(columnWidth));
+    }
+
+    private fitsIn(columnWidth: ColumnWidth) {
+        return this.text.length <= columnWidth.value();
+    }
+
+    private concat(text: WrappableText) {
+        return WrappableText.create(this.text.concat(text.text));
+    }
+
+    private wrappedText(columnWidth: ColumnWidth) {
+        return WrappableText.create(this.text.substring(0, this.wrapIndex(columnWidth)).concat('\n'));
+    }
+
+    private wrapIndex(columnWidth: ColumnWidth) {
+        return this.shallWrapBySpace(columnWidth) ? this.indexOfSpace() : columnWidth.value();
+    }
+
+    private unwrappedText(columnWidth: ColumnWidth) {
+        return WrappableText.create(this.text.substring(this.unwrapIndex(columnWidth)));
+    }
+
+    private unwrapIndex(columnWidth: ColumnWidth) {
+        return this.shallWrapBySpace(columnWidth) ? this.indexOfSpace() + 1 : columnWidth.value();
+    }
+
+    private shallWrapBySpace(columnWidth: ColumnWidth) {
+        return this.indexOfSpace() > -1 && this.indexOfSpace() < columnWidth.value();
+    }
+
+    private indexOfSpace() {
+        return this.text.indexOf(' ');
+    }
+}
+```
+
+### Identification of Responsibilities
+
+We star by identifying the key responsibilites of the algorithm: adjusting the text based on the column width and handling special cases such as spaces and null text. This process allows us to encapsulate these responsibilities in dedicated classes, `ColumnWidth` and `WrappableText`, which act as value objects.
+
+### Logic Encapsulation
+
+Each class encapsulates its related logic, promoting code cohesion:
+
+- `ColumnWidth` is responsible for validating and handling column width.
+- `WrappableText` manages text adjustment, prioritizing spaces and handling recursion to properly divide the text.
+
+That it promotes code cohesion means that it allows to visualize the code as a set of blocks that fit well with each other.
+
+### Use of Factory Methods
+
+Instead of exposing public constructors, we use static methods (`create`) to handle the creation of instances, encapsulating validations such as the handling of negative column widths and null texts. This follows the `Principle Of Least Astonishment`, because if we were use the constructor for validations it would be surprising to get an error when instantiating a class, don't you think?
+
+### Application of Recursion
+
+Recursion is central to word wrap. The `wordWrap` method of the `WrappableText` class uses recursion to divide the text in smaller segments, aligning with the nature of the problem. Essentially, we expose this method to do the same thing that the original `wordWrap` function did.
+
+### Continuous Refactoring
+
+Through iterations, we move the specific logic within the classes, like the calculation of the indexes for cutting (`wrapIndex` and `unwrapIndex`) and the preference for spaces (`shallWrapBySpace`). These private methods simplify the adjustment main logic.
+
+This part is important, because one does not get to the simplest version of the solution from the beginning, but through small improvements we refine the code until we consider that it cannot be simplified any further.
+
+### Clarity and Maintainability
+
+The result is a clean and maintainable design where every class is responsible for its part of the problem. This separation facilitates code extension and modification without affecting other parts of the system.
+
+## Link to GitHub repository
+
+You can find this kata, and the rest of them, [here](https://github.com/carlos-talavera/katas-sustainable-testing-ts).
+
+
+## Conclusion
+
+Using value objects and encapsulating responsibilities not only allows us to simplify the process of word wrap, but they also ensure that the code is robust and easy to maintain. This approach demonstrates how the effective use of TDD and object-oriented design principles can guide the development of elegant and sustainable solutions. Also, since we cannot forget about it, the Transformation Priority Premise (TPP) comes into play here at the moment in which from a specific case we create a general solution, as we did by introducing recursion.
+
+I hope you find this article interesting and useful, especially the refactoring part. If you have a question or want to share something, leave it in the comments :)
