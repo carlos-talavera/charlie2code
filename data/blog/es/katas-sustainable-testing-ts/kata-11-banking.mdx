@@ -1,0 +1,191 @@
+---
+title: "Kata 11 con TypeScript: Banca"
+series:
+  order: 12
+  title: "Katas Testing Sostenible con TypeScript"
+date: '2024/10/23'
+lastmod: '2024/10/23'
+language: es
+tags: ['testing', 'tdd', 'javascript', 'typescript']
+authors: ['default']
+draft: false
+featured: false
+summary: En este artículo de la serie "Katas Testing Sostenible con TypeScript", analizaremos cómo crear una banca simple usando TDD y Jest.
+---
+
+> Las katas de esta serie son ejercicios propuestos en el excelente curso [Testing Sostenible con TypeScript](https://academy.softwarecrafters.io/p/curso) de Miguel A. Gómez y Carlos Blé
+
+## Introducción
+
+En TDD, existen dos estilos: [Inside-Out y Outside-In](https://8thlight.com/insights/tdd-from-the-inside-out-or-the-outside-in). El primero, también conocido como `enfoque clásico`, se centra en realizar TDD desde adentro hacia afuera, es decir, comenzar por el núcleo de la aplicación, por las funcionalidades más elementales, y guiar el desarrollo hacia las capas más externas. El segundo es al revés, se centra en realizar TDD de afuera hacia adentro, es decir, comenzar por las capas más externas e ir penetrando hacia las partes fundamentales de la aplicación. `outside-in` también se conoce como `enfoque mockista`, ya que se crean pruebas para partes del sistema que aún no han sido implementadas, de modo que debemos recurrir a mocks.
+
+Otra diferencia importante es que en `outside-in` se crea una prueba principal conocida como `prueba de aceptación`, que representa la "garantía" de que el sistema se comporta de la manera esperada. Debido a que no existen implementaciones de lo que probamos, esta prueba es la última en pasar, y el proceso consiste en "bajar" a las capas más internas, crear las pruebas e implementaciones necesarias para que las pruebas pasen, y al final lograr que la prueba de aceptación pase.
+
+En el último artículo de esta serie, veremos cómo simular el comportamiento de una banca simple en donde se realizan depósitos y retiros y se muestran estados de cuenta. Para lograr esto, utilizaremos el estilo `outside-in`, pues es un caso sencillo y en todos los ejercicios anteriores usamos `inside-out`.
+
+> Que existan dos estilos no significa que tengamos que escoger uno u otro. De hecho, la mayor parte de la comunidad está de acuerdo en que la aplicación exitosa de TDD requiere de la combinación de ambos
+
+<TOCInline toc={props.toc} exclude="Introducción" locale={props.locale} asDisclosure />
+
+## Enunciado
+
+El desafío consiste en desarrollar una aplicación que gestione transacciones bancarias mediante una API de clase en TypeScript. Implementaremos este sistema utilizando el enfoque `outside-in`, comenzando desde las pruebas de aceptación para definir el comportamiento esperado del sistema completo.
+
+### Requisitos
+
+Nuestra aplicación debe ofrecer las siguientes funcionalidades:
+
+- Realizar depósitos en la cuenta
+- Retirar fondos de la cuenta
+- Imprimir el estado de cuenta en la consola
+
+El formato de impresión de los asientos debe seguir el siguiente esquema:
+
+```
+Date       | Amount | Balance
+14/01/2022 | 2000.00 | 2500.00
+13/01/2022 | -500.00 | 500.00
+10/01/2022 | 1000.00 | 1000.00
+```
+
+La restricción principal es mantener la interfaz de la clase `Account`.
+
+```ts
+export class Account {
+  deposit(amount: number): void {}
+  withdraw(amount: number): void {}
+  printStatement(): void {}
+}
+```
+
+## Prueba de Aceptación
+
+El enfoque `outside-in` TDD nos permite comenzar por las pruebas de aceptación, estableciendo el marco de referencia para el comportamiento esperado del sistema. Aquí, iniciamos creando una prueba que verifique la correcta impresión del estado de cuenta. Cuando esta prueba pase, habremos completado la implementación y podremos confiar en que el sistema se comporta de la manera esperada.
+
+```ts
+describe('Print Statement', () => {
+	const console = new Console();
+	const consoleSpy = jest.spyOn(console, 'log');
+	const clock = new Clock();
+	clock.todayAsString = jest
+		.fn()
+		.mockReturnValueOnce('10/01/2022')
+		.mockReturnValueOnce('13/01/2022')
+		.mockReturnValueOnce('14/01/2022');
+	const repository = new TransactionRepository(clock);
+	const statementPrinter = new StatementPrinter(console);
+	const account = new Account(repository, statementPrinter);
+
+	it('prints an account statement including the transactions made throughout the console', () => {
+		account.deposit(1000);
+		account.withdraw(500);
+		account.deposit(2000);
+
+		account.printStatement();
+
+		expect(consoleSpy).toHaveBeenCalledWith('Date | Amount | Balance');
+		expect(consoleSpy).toHaveBeenCalledWith('14/01/2022 | 2000.00 | 2500.00');
+		expect(consoleSpy).toHaveBeenCalledWith('13/01/2022 | -500.00 | 500.00');
+		expect(consoleSpy).toHaveBeenCalledWith('10/01/2022 | 1000.00 | 1000.00');
+	});
+});
+```
+
+Realizando un pequeño desglose de la idea detrás de esta prueba:
+
+- Creamos nuestra propia implementación de `Console` para utilizar `console.log` con un comportamiento personalizado, lo que permite encapsular esta lógica y extenderla fácilmente si se requieren cambios.
+- Espiamos sobre el método `log` de `Console` para crear pruebas basadas en la llamada a esta función, es decir, nuestra prueba de aceptación espera que se llame a esta función con el texto especificado.
+- Para tener control sobre el manejo de las fechas, usamos una clase `Clock` que nos permita hacer cambios con facilidad si cambian las reglas de negocio relacionadas con el tiempo.
+- Creamos stubs de fechas usando `mockReturnValueOnce`, lo que nos permite controlar el orden y las fechas que se utilizarán en las pruebas.
+- Usamos el patrón repositorio en `TransactionRepository` para aislar la implementación de la comunicación con el almacén de información, de forma que podemos cambiar esta lógica sin afectar otras partes del sistema. Es decir, se puede cambiar fácilmente el gestor de bases de datos o lo que sea que se use para persistir los datos.
+- Implementamos una clase `StatementPrinter` que use `Console` para mostrar las transacciones.
+- En `Account` se usa el repositorio y la impresora de transacciones para lograr el mínimo acoplamiento posible.
+- Todas las clases que se instancian pasando otras instancias como argumentos usan el patrón de inyección de dependencias, lo que contribuye a un fácil mantenimiento al aislar puntualmente cada componente.
+- La prueba espera que las transacciones se impriman de la más reciente a la más antigua.
+
+## Siguientes Pasos
+
+Hay que mencionar que la prueba de aceptación mostrada arriba es el resultado final del proceso `outside-in`, ya que inicialmente solo escribimos la idea básica, que es usar la clase `Account` para depositar y retirar cantidades e imprimir las transacciones, y lo que debemos hacer después es pasar a capas más internas para crear pruebas, escribir las implementaciones, y conforme vayamos avanzando, determinar qué es lo que necesitamos. Esto es porque si desde el inicio tratamos de decidir qué debe ocurrir con exactitud, tal vez terminemos con un diseño más complicado de lo necesario. Solo a través de este proceso iterativo donde escribimos pruebas cada vez más específicas, es que logramos la simplicidad.
+
+## Retos y Lecciones
+
+### Esencia de Outside-In
+
+Un desafío clave es decidir cómo manejar las dependencias dentro de la clase `Account`, asumiendo, claro, que estamos tratando de lograr un diseño limpio. Inicialmente, no es claro si `Console` debe ser inyectado directamente, o si siquiera necesitamos una clase así. Pero conforme creamos más pruebas y nos enfocamos en comportamientos más y más pequeños, nos damos cuenta de que sería buena idea segmentar lo más que se pueda.
+
+Al mismo tiempo, solo sabemos cómo segmentar la funcionalidad al conocer los comportamientos específicos que existen. Al inicio tenemos claros tres comportamientos: depositar, retirar e imprimir transacciones. Al avanzar, vemos que la parte de imprimir transacciones tiene comportamientos como: impresión de cabecera, impresión de fecha, impresión de cantidad y impresión de saldo. Luego podemos ver que es necesario controlar la fecha, hacer sumas y restas de las cantidades para el saldo y demás.
+
+A este proceso es a lo que me refería cuando mencioné "penetrar hacia las partes fundamentales de la aplicación". Esta constante retroalimentación nos permite ver que necesitamos cosas como `Console`, `Clock`, `StatementPrinter`, `Transaction` y `TransactionRepository`, porque para cada pequeño comportamiento creamos pruebas primero, entonces al crear las pruebas debemos pensar en qué tiene que ocurrir, y al pensar en eso, nos vemos forzados a entender qué es lo que necesitamos para lograrlo.
+
+### Control de Aleatoriedad
+
+El manejo de fechas presenta un desafío típico en TDD: la aleatoriedad. Podemos abordar esto mediante la inyección de un `Clock` para controlar las fechas generadas en las pruebas, asegurando resultados consistentes.
+
+```ts
+export class Clock {
+  todayAsString() {
+    const today = this.today();
+    return today.toLocaleString('es-MX', { year: 'numeric', month: '2-digit', day: '2-digit' });
+  }
+
+  protected today() {
+    return new Date();
+  }
+}
+```
+
+Como extra, para probar este comportamiento, dejamos el método `today` como `protected` para sobreescribirlo en una clase `TestableClock`.
+
+```ts
+class TestableClock extends Clock {
+	protected today(): Date {
+		return new Date('2022/03/20'); // Importante usar diagonales y no guiones, si se usan guiones, se le resta un día a la fecha
+	}
+}
+
+describe('The Clock', () => {
+	it('gets today date in dd/mm/yyyy format', () => {
+		const clock = new TestableClock();
+
+		const date = clock.todayAsString();
+
+		expect(date).toEqual('20/03/2022');
+	});
+});
+
+```
+
+### Manejo de Transacciones
+
+Como se había mencionado, para gestionar las transacciones, implementamos un patrón repositorio que abstrae la lógica de almacenamiento. Esto permite que la clase `Account` se mantenga enfocada en su responsabilidad principal, delegando detalles de implementación a otras clases especializadas.
+
+```ts
+export class TransactionRepository {
+  transactions: Transaction[] = [];
+  constructor(private clock: Clock) {}
+
+  allTransactions() {
+    return this.transactions;
+  }
+
+  addDeposit(amount: number) {
+    const transaction = new Transaction(this.clock.todayAsString(), amount);
+    this.transactions.push(transaction);
+  }
+
+  addWithdrawal(amount: number) {
+    const transaction = new Transaction(this.clock.todayAsString(), -amount);
+    this.transactions.push(transaction);
+  }
+}
+```
+
+## Enlace al repositorio de GitHub
+
+Puedes encontrar esta kata, y el resto de ellas, [aquí](https://github.com/carlos-talavera/katas-sustainable-testing-ts).
+
+## Conclusión
+
+Implementar un sistema de gestión de cuentas bancarias utilizando el enfoque `outside-in` TDD no solo nos ayuda a mejorar nuestra comprensión de este método, sino que también nos enseña valiosas lecciones sobre el diseño de software. En programación, y en la vida, la única forma de mejorar nuestras habilidades es practicando, por lo que únicamente a través de ejercicios que lleven al límite nuestros conocimientos es que podemos aprender, y al menos para mí, este ejercicio lo logra.
+
+Espero que este artículo te haya resultado útil y te haya proporcionado ideas para aplicar TDD en tus propios proyectos. También espero que esta serie te haya gustado, ya que mi objetivo es que de inicio a fin sea una guía para aprender TDD por medio de mis aprendizajes. Si tienes alguna duda o quieres compartir algo, déjalo en los comentarios :)
