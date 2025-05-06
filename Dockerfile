@@ -3,6 +3,8 @@ FROM node:20.17.0-alpine3.19 AS base
 FROM base AS build-deps
 RUN apk add --no-cache libc6-compat
 
+RUN npm i -g corepack@latest
+
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 
@@ -27,6 +29,8 @@ ENV EMAILOCTOPUS_LIST_ID=$EMAILOCTOPUS_LIST_ID
 
 ARG NEXT_UMAMI_ID
 ENV NEXT_UMAMI_ID=$NEXT_UMAMI_ID
+
+RUN npm i -g corepack@latest
 
 RUN corepack enable
 RUN corepack prepare pnpm@latest --activate
