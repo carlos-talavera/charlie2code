@@ -22,8 +22,6 @@ jobs:
             --file Dockerfile \
             --tag $IMAGE_NAME \
             --label "runnumber=${GITHUB_RUN_ID}" \
-            --build-arg EMAILOCTOPUS_API_KEY=${{ secrets.EMAILOCTOPUS_API_KEY }} \
-            --build-arg EMAILOCTOPUS_LIST_ID=${{ secrets.EMAILOCTOPUS_LIST_ID }} \
             --build-arg NEXT_UMAMI_ID=${{ secrets.NEXT_UMAMI_ID }}
 
       - name: Log in to registry
