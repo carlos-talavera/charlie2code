@@ -21,7 +21,7 @@ module.exports = {
         14: '3.5rem',
       },
       fontFamily: {
-        sans: ['var(--font-space-grotesk)', ...fontFamily.sans],
+        sans: ['var(--font-open-sans)', ...fontFamily.sans],
       },
       colors: {
         primary: colors.purple,

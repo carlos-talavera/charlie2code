@@ -10,7 +10,7 @@ import siteMetadata from '@/data/siteMetadata'
 import { dir } from 'i18next'
 import { Metadata } from 'next'
 import { ThemeProvider } from 'next-themes'
-import { Space_Grotesk } from 'next/font/google'
+import { Open_Sans } from 'next/font/google'
 import { Analytics, AnalyticsConfig } from 'pliny/analytics'
 import { LocaleTypes, locales } from './i18n/settings'
 
@@ -18,10 +18,10 @@ export async function generateStaticParams() {
   return locales.map((locale) => ({ locale }))
 }
 
-const space_grotesk = Space_Grotesk({
+const open_sans = Open_Sans({
   subsets: ['latin'],
   display: 'swap',
-  variable: '--font-space-grotesk',
+  variable: '--font-open-sans',
 })
 
 export async function generateMetadata({ params: { locale } }): Promise<Metadata> {
@@ -89,7 +89,7 @@ export default function RootLayout({
     <html
       lang={locale}
       dir={dir(locale)}
-      className={`${space_grotesk.variable} scroll-smooth`}
+      className={`${open_sans.variable} scroll-smooth`}
       suppressHydrationWarning
     >
       <link rel="icon" type="image/png" sizes="32x32" href="/static/favicons/logo.svg" />
