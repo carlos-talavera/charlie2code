@@ -1,10 +1,8 @@
 import Link from '@/components/mdxcomponents/Link'
-import siteMetadata from '@/data/siteMetadata'
-import NewsletterForm from '@/components/newletter/NewsletterForm'
 import { createTranslation } from '../app/[locale]/i18n/server'
 import { LocaleTypes } from '../app/[locale]/i18n/settings'
-import PostList from './home/PostList'
 import LayoutHeader from './home/LayoutHeader'
+import PostList from './home/PostList'
 
 interface Post {
   slug: string
@@ -40,11 +38,6 @@ export default async function HomeLayout({ posts, params: { locale } }: HomeProp
           >
             {t('all')} &rarr;
           </Link>
-        </div>
-      )}
-      {siteMetadata.newsletter?.provider && (
-        <div className="flex items-center justify-center pt-4">
-          <NewsletterForm />
         </div>
       )}
     </>

@@ -1,6 +1,5 @@
 import type { MDXComponents } from 'mdx/types'
 import Pre from 'pliny/ui/Pre'
-import BlogNewsletterForm from '../newletter/BlogNewsLetterForm'
 import TOCInline from '../TOCInline'
 import Audioplayer from './Audioplayer'
 import Image from './Image'
@@ -14,7 +13,6 @@ export const components: MDXComponents = {
   a: CustomLink,
   pre: Pre,
   table: TableWrapper,
-  BlogNewsletterForm,
   Audioplayer,
   WebsiteEmbed,
 }

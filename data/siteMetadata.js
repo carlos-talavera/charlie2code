@@ -27,9 +27,6 @@ const siteMetadata = {
       umamiWebsiteId: process.env.NEXT_UMAMI_ID,
     }
   },
-  newsletter: {
-    provider: 'emailoctopus',
-  },
   // waline support
   iswaline: true,
   walineServer: 'https://waline.charlie2code.com',
