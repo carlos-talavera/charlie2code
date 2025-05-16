@@ -1,0 +1,563 @@
+---
+title: "Construyendo una base de datos clave-valor en Ruby usando TDD: Parte 02"
+series:
+  order: 2
+  title: "Construyendo una base de datos clave-valor en Ruby usando TDD"
+date: '2025/05/10'
+lastmod: '2025/05/10'
+language: es
+tags: ['testing', 'tdd', 'ruby', 'bases de datos']
+authors: ['default']
+draft: false
+featured: false
+summary: En esta segunda parte, empezaremos a trabajar en los tests y las implementaciones para serializar y deserializar los datos.
+---
+
+<TOCInline toc={props.toc} locale={props.locale} asDisclosure />
+
+Voy a mezclar tiempos verbales porque pensar es un proceso raro, ¿no crees? Y yo honestamente solo voy a escribir lo que pienso, sin filtros. Dado que el propósito de esto es que el lector pueda "meterse en mi cabeza", hablaré acerca de "yo" la mayoría del tiempo, para que puedas sentir que estás en mis zapatos. Agregué los títulos de cada sección después de terminar todo el trabajo, porque, de qué otra forma sabría de qué iba a hablar?
+
+## Lo que sé (o lo que creo que sé)
+
+Sé dos cosas:
+
+1. Necesito tener algo para convertir datos de binario y desde binario
+2. Necesito tener algo para escribir nueva información en archivos y obtener información de archivos
+
+Podría mezclar todo si voy muy lento, pero hasta este punto sé que convertir cosas es diferente de escribir en archivos y leer desde archivos, entonces sé que estas dos cosas deberían "vivir" en diferentes espacios. Ya que puedo hacer POO (Programación Orientada a Objetos) en Ruby, estos dos diferentes espacios/cosas serían clases en realidad.
+
+La que es para lidiar con los datos binarios podría ser un "Convertidor", pero un término más elegante es "Serializador" (`Serializer` en inglés). Este término sería más preciso para gente con formación técnica, ya que existe un formato y algunas reglas que puedo imponer para serializar y deserializar datos binarios. La que es para escribir datos en archivos y leerlos desde ahí podría ser un "lector de archivos de bases de datos", pero habla mucho de lo que está pasando dentro, y lo que yo quiero es poder expresar la intención de la clase, no lo que hace. Dado que esta clase es para escribir y leer, y cuando escribo algo termina en un lugar del que puedo leer después, esa información está guardada en algún lugar. Si esta base de datos implementara diferentes formas de guardar información, una podría ser "CloudStore" (en la nube), otro podría ser "DiskStore" (en disco) y así. "DiskStore" es lo que realmente estaré haciendo, guardar cosas en archivos en mi disco local, así que me gusta más ese nombre.
+
+Debido a que soy una persona organizada, crearé un módulo `KVDatabase` que contendrá otro módulo `Serializer` y una clase `DiskStore`. ¿Por qué no hacer `Serializer` una clase? Porque no quiero instancias de `Serializer`, solo quiero usar estas funciones como "auxiliares".
+
+```rb
+# src/kv_database/serializer.rb
+# frozen_string_literal: true
+module KVDatabase
+  module Serializer
+    # Métodos aquí (serializer no es una clase por definición
+    # pero la manera en la que la usaremos será como una clase,
+    # por eso es que los llamo métodos, así que, sí
+  end
+end
+```
+
+```rb
+# src/kv_database/disk_store.rb
+# frozen_string_literal: true
+module KVDatabase
+  class DiskStore
+    # Métodos aquí (ahora sí son métodos "reales")
+  end
+end
+```
+
+Ahora, necesito ser capaz de serializar datos binarios para guardarlos en primer lugar, entonces necesito `Serializer` listo y después puedo empezar a pensar en `DiskStore`. Así que necesito concentrarme en `Serializer` primero.
+
+## Serializer
+
+Sé que estas clase tiene que hacer dos cosas:
+
+1. Serializar datos
+2. Deserializar datos
+
+No puedo saber cómo invertir un proceso sin saber qué hace ese proceso, así que no puedo deserializar sin saber cómo serializar. Entonces me enfocaré en serializar primero.
+
+### Serializar enteros
+
+Recordando que TDD no es acerca de implementaciones, sino de hacer que tests pasen, necesito enfocarme en qué tests, relacionados con serializar datos, puedo crear. Por ahora, el más fácil que se me viene a la mente is simplemente checar si un entero como 20 puede ser convertido en un arreglo de datos binarios. Después de empaquetar los datos, el resultado en hexadecimal, usando una representación de 32 bits, por lo tanto 4 bytes, será `0x00000014`, porque 20 en decimal es 14 en hexadecimal. En representación little endian, básicamente empezamos del byte menos significativo (el extremo derecho), para ordenar los bytes, entonces en otras palabras, solo se revierte: `0x14000000`.
+
+Así es como se guardaría en memoria, `14 00 00 00`. En el reino de los lenguajes de programación, esto no sería representado como un arreglo, sería representado como una cadena binaria. `"0x14000000"` es lo que yo vería, excepto que no lo es, porque cada byte necesita estar delimitado (eso es lo que la `"x"` hace). Así que lo que realmente voy a ver es `"\x14\x00\x00\x00"`, usando una `"\"` para escapar el caracter `"x"`. Esto significa, un primer test podría simplemente probar que 20 sea empaquetado como `"\x14\x00\x00\x00"`.
+
+Sé que una función `serialize` tomará un valor a ser serializado y el formato, porque después necesito saber cómo los datos fueron serializados, para que pueda saber cómo deserializarlos. Entonces se verá así:
+
+```rb
+# src/kv_database/serializer.rb
+def self.serialize(value:, fmt:); end
+```
+
+Uso parámetros con palabra clave porque no quiero arruinar el orden y porque hacen mi código más claro. Escribiré mi primer test y lo veré fallar (la configuración y todo eso está en `spec/spec_helper.rb`, el cual lo puedes obtener usando `rspec --init` en la línea de comandos):
+
+```rb
+# spec/kv_database/serializer_spec.rb
+# frozen_string_literal: true
+
+RSpec.describe KVDatabase::Serializer do
+  it "serializes integers" do
+    expect(KVDatabase::Serializer.serialize(value: 20, fmt: "")).to eq("\x14\x00\x00\x00")
+  end
+end
+```
+
+![Test failing](/static/images/building-a-key-value-database-in-ruby-using-tdd/part-02/01.png "01 - Fail")
+
+No sé qué formatos necesito, así que lo dejaré vacío. El nombre para el test podría ser mejor, pero no sé hacia dónde voy, entonces está bien por ahora. Para hacer que este test pase, solo haré una implementación falsa que regrese exactamente lo que esperamos.
+
+```rb
+def self.serialize(value:, fmt:)
+  return "\x14\x00\x00\x00"
+end
+```
+
+![Test passing](/static/images/building-a-key-value-database-in-ruby-using-tdd/part-02/02.png "02 - Pass")
+
+El test pasa y todos somos felices (esto es lo que siempre siento cuando veo ese color verde, pero solo mencionaré una vez).
+
+(Si no está claro hasta ahora, no te preocupes por repetir cosas, tener cadenas de texto mágicas y eso, no importa ahora, para eso es la refactorización).
+
+Ahora mismo simplemente podría poner `"\x14\x00\x00\x00"` en una constante, pero eso solo tendría sentido para el test, no para la implementación falsa porque no será falsa conforme avance. Entonces voy a refactorizar el test, de hecho.
+
+```rb
+it "serializes integers" do
+    expected = "\x14\x00\x00\x00"
+    expect(KVDatabase::Serializer.serialize(value: 20, fmt: "")).to eq(expected)
+  end
+```
+
+También podría mover el valor y la llamada al método `serialize` a una variable auxiliar, pero el test es tan simple que eso solo agregaría complejidad innecesaria. Ahora crearé la verdadera implementación para esto. Resulta que Ruby provee un método llamado `pack` precisamente para empaquetar algún arreglo de valores en una representación binaria (un arreglo de bytes). Si solo tenemos un valor (20), entonces simplemente pondremos el valor adentro de un arreglo para tener un arreglo de un solo elemento para empaquetar. La sintaxis es esta:
+
+```rb
+n = [ 65, 66, 67 ]
+n.pack("ccc") # "ABC"
+```
+
+El método está disponible para cualquier arreglo, y luego toma una cadena de texto con unas cosas raras. Esas cosas raras son formatos, de hecho. Cada `"c"` representa un `"caracter"` (ASCII), así que le dice a `pack` que convierta el primer, segundo y tercer valor de `n`, a `c`, `c` y `c`, respectivamente. Esto resultará en un arreglo de bytes donde cada byte representa un caracter ASCII. En este caso, `65 -> A`, `66 -> B`, `67 -> C`. En la memoria, el arreglo de bytes estará almacenado, pero Ruby manejará la conversión cuando imprima esto, por eso es que no veremos un arreglo de bytes, y en su lugar veremos caracteres.
+
+Regresando a la representación little endian, para asegurarnos de que funcione así, se necesita un símbolo `"<"` después de cada letra de formato que no siga esa representación por defecto. Primero, necesito cambiar el test:
+
+```rb
+it "serializes integers" do
+  expected = "\x14\x00\x00\x00"
+  expect(KVDatabase::Serializer.serialize(value: 20, fmt: "L<")).to eq(expected)
+end
+```
+
+Por ahora, no importa cuál formato se use aquí siempre y cuando sea para un entero de al menos 32 bits para evitar cualquier comportamiento inesperado. En este caso, `L` es para `unsigned long`, un entero sin signo de 32 bits. Usando un formato más corto, 16 bits, haría que el test falle porque el resultado sería 2 bytes, lo que sería `"\x14\x00"` en lugar de lo esperado. Este test parece frágil, pero no estoy seguro. Después, conforme introduzca más tests, determinaré cuáles tests realmente son confiables y útiles.
+
+Ahora tengo que modificar la implementación de `serialize` para usar el método `pack` con el formato provisto.
+
+```rb
+def self.serialize(value:, fmt:)
+  return [value].pack(fmt)
+end
+```
+
+Ahora mismo la función parece una simple "envoltura", y lo es, pero de nuevo, está bien. Es una pequeña interfaz para encapsular comportamiento. El hecho de que no haga mucho ahora mismo, no significa que no es importante. Puedo asumir con seguridad que `value` no será ya un arreglo, y si lo es, culpa a la persona que no proveyó documentación o "firmas" de tipos para ese parámetro... oh, espera, ese fui yo. Podría agregar alguna guarda para "arreglar" ese comportamiento, pero por ahora no me preocupo por eso dado que este método cambiará, porque ahora mismo asume que solo se pasan enteros. Después de cambiar la implementación de `serialize`, el test seguirá pasando (honestamente es tedioso manejar imágenes, así que solo las pondré para casos donde introduzcan nueva información, de otra forma esto estaría lleno de capturas de pantalla de tests fallando y pasando).
+
+Hasta ahora una versión simple de `serialize` está lista, así que me moveré al método `deserialize`. Para esto, crearé un nuevo test que haga lo mismo, pero al revés.
+
+### Deserializar enteros
+
+```rb
+it "deserializes integers" do
+  expected = 20
+  expect(KVDatabase::Serializer.deserialize(value: "\x14\x00\x00\x00", fmt: "L<")).to eq(expected)
+end
+```
+
+Por supuesto esto va a fallar porque `deserialize` ni siquiera existe. Lo implementaré usando una implementación falsa solo para hacer que el test pase:
+
+```rb
+def self.deserialize(value:, fmt:)
+  return 20
+end
+```
+
+Pasa. Ahora las cosas se ponen interesantes (como si no lo fueran ya), ¿cómo deserializar datos? Bueno, otra vez, resulta que las cadenas de texto tienen un método llamado `"unpack1"` que, dado un formato, regresa un valor único interpretado, en lugar de un arreglo de ellos. Esto es útil porque sé que estoy guardando solo un entero, así que puedo asumir con seguridad que desempaquetarlo al extraer un solo valor me dará el entero real. Por lo tanto, cambiaré la implementación para que use `unpack1`:
+
+```rb
+def self.deserialize(value:, fmt:)
+  return value.unpack1(fmt)
+end
+```
+
+El test todavía pasa (bien, no rompí nada, esa es lo mejor de tener tests).
+
+Hasta ahora he implementado `serialize` y `deserialize` para enteros solo al intentar que el test pase. El siguiente paso es hacer que funcione para cualquier tipo de datos. ¿Qué otros tipos de datos me importan? ¿Todos ellos? Bueno, no. Un entero puede representar virtualmente todo, al final así es como los datos son representados en memoria, pero en términos del mundo real, un entero no tiene la precisión de un float (no lo traduzco porque "flotante" suena muy raro para mí), por ejemplo. Para cadenas de texto, recordemos que estas dos funciones están siendo implementadas para lidiar con datos binarios. ¿Cómo funcionan las cadenas de texto? Usando caracteres ASCII, cada caracter cabe en 1 byte, pero ASCII no incluye caracteres fuera del idioma inglés. Para esto, Unicode se inventó. En Unicode, cada caracter se guarda usando 4 bytes, porque cualquier caracter especial cabe en 4 bytes. UTF-8 es el estándar para este proceso de codificación. Codificar una cadena de texto usando UTF-8 explícitamente lo convertirá a datos binarios, aunque la codificación no juega un papel en cómo se almacenan los datos (más sobre esto en la parte 3).
+
+Para otros tipos de datos, ya están cubiertos. Los booleanos pueden ser representados con 0 o 1, `nil` podría ser una cadena de texto. Los mapas, arreglos, objetos y todas esas estructuras de datos sofisticadas, pueden ser "encadenadas" (transformarlas a texto) cuando se almacenen y luego convertidas a su representación original cuando se obtengan.
+
+### Serializar floats
+
+Empezaré con los floats. Son más difíciles de entender por cómo los números de punto flotante se guardan en memoria (aquí sí me vi forzado a decir "flotante", ni modo), pero solo necesito entender qué esperar, no voy a convertir un float a su representación hexadecimal solo por diversión. ¿Lo primero que hay que hacer? Para sorpresa de nadie (espero), un test. Sin embargo, este test es más complicado. Para maximizar la precisión, los floats se guardarán usando la precisión de un `double`. Eso significa 64 bits con hasta 17 dígitos de precisión decimal. 64 bits son 8 bytes, así que el valor esperado necesita ser una cadena binaria con 8 conjuntos de 2 dígitos cada uno, cada uno siendo de 1 byte. El formato asignado a esta precisión `double` simplemente es `"E"`.
+
+```rb
+it "serializes floats" do
+  expected = "\x8f\xc2\xf5\x28\x5c\x8f\x2c\x40".b
+  expect(KVDatabase::Serializer.serialize(value: 14.28, fmt: "E")).to eq(expected)
+end
+```
+
+La única cosa que se ve rara es tener que usar `.b` en el valor esperado. Esto se necesita porque las cadenas de texto en Ruby son UTF-8 por defecto (sí, sí, "están codificadas", *keep it simple*), pero el resultado de `serialize`, usando `pack` por debajo, está codificado en ASCII. Esa `.b` codifica la cadena de texto en ese formato.
+
+Este test pasará porque los floats son convertidos en cadenas binarias de la misma forma que los enteros, así que solo cambiar el formato es suficiente.
+
+### Deserializar floats
+
+Ahora crearé un test para deserializar floats:
+
+```rb
+it "deserializes floats" do
+  expected = 14.28
+  expect(KVDatabase::Serializer.deserialize(value: "\x8f\xc2\xf5\x28\x5c\x8f\x2c\x40", fmt: "E")).to eq(expected)
+end
+```
+
+Pasará también por la misma razón mencionada arriba.
+
+### Serializar cadenas de texto
+
+Ahora movámonos a las cadenas de texto. Las cosas son diferentes co nellas porque para serializarlas, el proceso es de hecho codificarlas en UTF-8, no usar `pack`. De nuevo, un test:
+
+```rb
+it "serializes strings" do
+  expected = "\x63\x61\x66\xc3\xa9"
+  expect(KVDatabase::Serializer.serialize(value: "café", fmt: "")).to eq(expected)
+end
+```
+
+Es importante usar caracteres especiales para que este test sea confiable. De otra forma no estaríamos probando por todos los casos posibles de una cadena de texto. El test va a fallar porque `["café"].pack("")` no hará nada. Entonces, ¿cómo resolverlo? Bueno, la implementación obvia sería: ya que esto funciona diferente para cadenas de texto, simplemente puedo checar que si el valor es una cadena de texto, lo codifique en UTF-8 en lugar de intentar empaquetarlo usando un formato.
+
+```rb
+def self.serialize(value:, fmt:)
+  if value.is_a?(String)
+    return value.encode(Encoding::UTF_8)
+  end
+
+  return [value].pack(fmt)
+end
+```
+
+Ahora el test pasará. Porque, recordemos que codificar algo en UTF-8 es simplemente empaquetarlo en un orden y distribución de bytes específicos dentro de un arreglo.
+
+### Deserializar cadenas de texto
+
+Ahora creemos un test para deserializar:
+
+```rb
+it "deserializes strings" do
+  expected = "café"
+  expect(KVDatabase::Serializer.deserialize(value: "\x63\x61\x66\xc3\xa9", fmt: "")).to eq(expected)
+end
+```
+
+Dado que no hay formato porque esto no fue convertido a una cadena binaria usando un formato y `pack`, este test fallará. La parte interesante es que la implementación es obvia aquí, pero no se puede lograr con la función actual.
+
+La implementación obvia es que para cadenas de texto, no hay nada especial que hacer, solo regresar la información misma. ¿Por qué? Porque los datos se guardan como un arreglo de bytes siguiendo el estándar UTF-8, y las cadenas de texto son por defecto UTF-8 en Ruby (y supongo que en la mayoría de los lenguajes), así que la única cosa que está pasando es que yo explícitamente codifiqué la cadena de texto en este formato, así que Ruby solo está viendo los mismos datos con los que siempre ha tenido que lidiar cuando se trata de cadenas de texto, la única diferencia es que ahora yo hice el trabajo extra.
+
+Y ahora, ¿por qué no se puede lograr con la función actual? Porque el valor siempre es una cadena binaria, así que no hay forma de saber si es un entero o un float. Entonces esto me dice que la manera en la que estructuré las funciones está mal. `serialize` está mal porque no está usando `fmt` para cadenas de texto, y `deserialize` está mal porque no me permite deserializar cadenas de texto. Para resolver esto, puedo ver que la clave aquí está en el tipo del valor. Si el formato no se necesita para cadenas de texto, y deserializar implica tener la habilidad de saber si el valor es un entero, un float o una cadena de texto, entonces se necesita un nuevo parámetro para el tipo. Vamos a empezar con `serialize`. Las cosas se van a poner feas ahora porque todos los tests se van a romper. Comentaré el nuevo test para deserializar strings para que no me confunda cuando los otros tests fallen.
+
+### Arreglar el método `serialize`
+
+Ahora cambiaré la implementación de `serialize` para incluir el parámetro `type`. El tipo no debería ser una simple cadena de texto, porque eso sería descuidado. Aparentemente podría usar los tipos exactos, como `Integer`, `Float` y `String`, pero eso se siente raro, tal vez es perfectamente válido, pero no me siento cómodo con ese enfoque ahora. Podría implementar algún `hash map` pero todavía necesitaría una forma de evitar errores al acceder a él a través de las claves usando cadenas de texto. Viniendo de un trasfondo de JS, recuerdo que existe un tipo especial de dato que puede ser usado cuando necesitas un valor único e inmutable durante la ejecución del programa. Ese tipo es un `symbol`. Los símbolos son por definición únicos. En Ruby pueden ser definidos como `:{nombre_symbol}`, así que es seguro usarlos para comparaciones. Además, ahora que veo, las claves de un mapa (diccionario, lo que sea), son por defecto símbolos, así que si quisiera crear un hash map para tipos, usar los tipos exactos sería raro, y es más "idiomático" usar símbolos.
+
+Estos símbolos pueden ser nombrados como los tipos, pero siendo símbolos. Entonces la nueva implementación de `serialize` sería:
+
+```rb
+def self.serialize(value:, fmt:, type:)
+  if type == :String
+    return value.encode(Encoding::UTF_8)
+  end
+
+  return [value].pack(fmt)
+end
+```
+
+Sí, estoy introduciendo `type` y al mismo tiempo cambiando cómo se checa el tipo de cadena de texto. ¿Recomendable? Apenas. Pero es suficientemente conciso como para no hacer un alboroto y crear confusión mientras desarrollo esta cosa. Simplemente me gusta pensar de forma pragmática y cuando pasa, puedo saltarme la "regla" porque encontré una excepción a ella. Esto, por supuesto, romperá los tests porque `type` no se está pasando. Ahora arreglemos los tests:
+
+```rb
+it "serializes integers" do
+  expected = "\x14\x00\x00\x00"
+  expect(KVDatabase::Serializer.serialize(value: 20, fmt: "L<", type: :Integer)).to eq(expected)
+end
+
+it "serializes floats" do
+  expected = "\x8f\xc2\xf5\x28\x5c\x8f\x2c\x40".b
+  expect(KVDatabase::Serializer.serialize(value: 14.28, fmt: "E", type: :Float)).to eq(expected)
+end
+
+it "serializes strings" do
+  expected = "\x63\x61\x66\xc3\xa9"
+  expect(KVDatabase::Serializer.serialize(value: "café", fmt: "", type: :String)).to eq(expected)
+end
+```
+
+Y ahora todos ellos pasarán de nuevo. Una cosa más que parece un `code smell` es que `fmt` no se necesita para cadenas de texto, así que información inútil se está pasando para ese caso, pero regresaré a esto después de hacer que el test para deserializar cadenas de texto funcione.
+
+### Ajustar `deserialize` para cadenas de texto
+
+Primero vamos a agregar `type` a `deserialize` y simplemente regresar el valor cuando es una cadena de texto.
+
+```rb
+def self.deserialize(value:, fmt:, type:)
+  if type == :String
+    return value
+  end
+
+  return value.unpack1(fmt)
+end
+```
+
+### Arreglar los tests para deserializar
+
+De nuevo, esto podría hacerse agregando el tipo y después agregar el condicional para checar por el tipo de cadena de texto, pero es manejable dar dos pasos aquí, así que está bien. Ahora vamos a arreglar los tests para enteros y floats:
+
+```rb
+it "deserializes integers" do
+  expected = 20
+  expect(KVDatabase::Serializer.deserialize(value: "\x14\x00\x00\x00", fmt: "L<", type: :Integer)).to eq(expected)
+end
+
+it "deserializes floats" do
+  expected = 14.28
+  expect(KVDatabase::Serializer.deserialize(value: "\x8f\xc2\xf5\x28\x5c\x8f\x2c\x40", fmt: "E", type: :Float)).to eq(expected)
+end
+```
+
+Pasarán.
+
+### Deserializar cadenas de texto (ahora de verdad)
+
+Vamos a descomentar el test que empezó todos estos cambios y pasar el tipo `:String` a `deserialize`:
+
+```rb
+it "deserializes strings" do
+  expected = "café"
+  expect(KVDatabase::Serializer.deserialize(value: "\x63\x61\x66\xc3\xa9", fmt: "", type: :String)).to eq(expected)
+end
+```
+
+Ahora pasará.
+
+### Refactorizar cómo se manejan los formatos
+
+Aunque me está molestando que el formato no está siendo usado en  `serialize` y `deserialize` para cadenas de texto. Pensando en ello, si esto es para una base de datos clave-valor controlada, donde puedes simplemente colocar una clave con un valor y obtener el valor usando la clave, ¿por qué permitiría que alguien determinara cómo los datos van ser guardados (y asignados de alguna manera)? ¿No sería mejor si yo solo fijara los formatos internamente? Eso suena mejor, y menos propenso a errores. Así que haré tres cosas:
+
+1. Crear un mapa para mapear (lo sé, lo sé) tipos con formatos
+2. Usar el formato del mapa usando el tipo pasado como parámetro
+3. Eliminar el parámetro `fmt` de `serialize` y `deserialize`
+4. Eliminar el argumetno `fmt` en los tests
+
+Siguiendo este orden, los tests se van a romper hasta que eliminemos el parámetro `fmt`. Las cadenas binarias para un entero esperan que sea de 32 bits, y podría ser peligroso no tener esto claro al crear un test, pero si esto está bien documentado, entonces está bien. Cada vez que me preocupo por estas cosas solo pienso "Hay situaciones donde no deberías tener que ser tan cuidadoso cuando toques el código porque eso significa que no está bien hecho, pero hay otras situaciones donde necesitas ser muy cuidadoso, porque se espera que tú, como desarrollador, entiendas qué estás haciendo". Esta situación cae en la segunda categoría. Entonces, empecemos con este mapeo interno:
+
+```rb
+# src/kv_database/serializer.rb
+# frozen_string_literal: true
+
+module KVDatabase
+  module Serializer
+    DATA_TYPE_FORMAT = {
+      Integer: "L<",
+      Float: "E"
+    }
+  # Resto de los métodos
+  end
+end
+```
+
+Ahora está claro por qué usar símbolos fue una buena elección. Puedo usar las claves justo así sin los dos puntos al inicio porque, como se mencionó arriba, las claves son símbolos por defecto en Ruby.
+
+```rb
+# src/kv_database/serializer.rb
+# frozen_string_literal: true
+
+module KVDatabase
+  module Serializer
+    DATA_TYPE_FORMAT = {
+      Integer: "L<",
+      Float: "E"
+    }
+
+    def self.serialize(value:, fmt:, type:)
+      if type == :String
+        return value.encode(Encoding::UTF_8)
+      end
+
+      return [value].pack(DATA_TYPE_FORMAT[type])
+    end
+
+    def self.deserialize(value:, fmt:, type:)
+      if type == :String
+        return value
+      end
+
+      return value.unpack1(DATA_TYPE_FORMAT[type])
+    end
+  end
+end
+```
+
+(Revisa aquí que los test pasen. Deberían). Ahora vamos a eliminar el parámetro `fmt`:
+
+```rb
+# src/kv_database/serializer.rb
+# frozen_string_literal: true
+
+module KVDatabase
+  module Serializer
+    DATA_TYPE_FORMAT = {
+      Integer: "L<",
+      Float: "E"
+    }
+
+    def self.serialize(value:, type:)
+      if type == :String
+        return value.encode(Encoding::UTF_8)
+      end
+
+      return [value].pack(DATA_TYPE_FORMAT[type])
+    end
+
+    def self.deserialize(value:, type:)
+      if type == :String
+        return value
+      end
+
+      return value.unpack1(DATA_TYPE_FORMAT[type])
+    end
+  end
+end
+```
+
+A corregir los tests:
+
+```rb
+# spec/kv_database/serializer_spec.rb
+# frozen_string_literal: true
+
+RSpec.describe KVDatabase::Serializer do
+  it "serializes integers" do
+    expected = "\x14\x00\x00\x00"
+    expect(KVDatabase::Serializer.serialize(value: 20, type: :Integer)).to eq(expected)
+  end
+
+  it "serializes floats" do
+    expected = "\x8f\xc2\xf5\x28\x5c\x8f\x2c\x40".b
+    expect(KVDatabase::Serializer.serialize(value: 14.28, type: :Float)).to eq(expected)
+  end
+
+  it "serializes strings" do
+    expected = "\x63\x61\x66\xc3\xa9"
+    expect(KVDatabase::Serializer.serialize(value: "café", type: :String)).to eq(expected)
+  end
+
+  it "deserializes integers" do
+    expected = 20
+    expect(KVDatabase::Serializer.deserialize(value: "\x14\x00\x00\x00", type: :Integer)).to eq(expected)
+  end
+
+  it "deserializes floats" do
+    expected = 14.28
+    expect(KVDatabase::Serializer.deserialize(value: "\x8f\xc2\xf5\x28\x5c\x8f\x2c\x40", type: :Float)).to eq(expected)
+  end
+
+  it "deserializes strings" do
+    expected = "café"
+    expect(KVDatabase::Serializer.deserialize(value: "\x63\x61\x66\xc3\xa9", type: :String)).to eq(expected)
+  end
+end
+```
+
+Los tests todavía pasarán a menos que haya algún error de dedo en el mapa. Ahora, pensando en eso, quiero ser capaz de serializar cualquier entero (tomando el signo en cuenta), no solo un entero de 32 bits. Entonces quiero el formato para un entero de 64 bits. Ese es `"q<"`. Así que cambiaré el mapa... no, eso no es lo primero a hacer, porque eso rompería los tests para enteros. ¿Por qué? Porque las cadenas binarias son para 32 bits, no para 64. Entonces necesito cambiar esas cadenas de texto primero, solo agregando otros 4 bytes vacíos para tener 8 (64 bits).
+
+```rb
+it "serializes integers" do
+  expected = "\x14\x00\x00\x00\x00\x00\x00\x00"
+  expect(KVDatabase::Serializer.serialize(value: 20, type: :Integer)).to eq(expected)
+end
+
+it "deserializes integers" do
+  expected = 20
+  expect(KVDatabase::Serializer.deserialize(value: "\x14\x00\x00\x00\x00\x00\x00\x00", type: :Integer)).to eq(expected)
+end
+```
+
+Por supuesto que los tests ya no pasarán, pero al abordar esto primero, es seguro cambiar el formato en el mapa ahora:
+
+```rb
+DATA_TYPE_FORMAT = {
+  Integer: "q<",
+  Float: "E"
+}
+```
+
+Y los tests pasarán de nuevo. Si hubiera cambiado el mapa primero, hubiera visto mis tests fallar y preguntarme por qué, así que es más fácil para mí pensar en qué le haría eso a mis tests y luego pensar si puedo abordarlo primero (al menos ahora, tal vez después lo haga al revés).
+
+### Creando los mapas para guardar el registro real
+
+Con esto en su lugar, pienso que ahora tengo un buen punto de partida para realmente empezar a pensar acerca de cómo voy a guardar los datos de un registro. Regresando a cómo funciona Bitcask, para cada registro necesito, en orden:
+
+- Un checksum que cumpla con CRC-32
+- Un epoch timestamp
+- El tamaño de la clave
+- El tamaño del valor
+- El tipo de la clave
+- El tipo del valor
+- Clave
+- Valor
+
+Tener los metadatos (todo excepto clave y valor), me permite saber dónde empezar y dónde terminar al insertar y leer un registro. No sé cómo generar un checksum que cumpla con CRC, pero puedo comenzar falseando la implementación; el epoch timestamp supongo que puedo hacer algo como `Time.now()` o como sea que funcione en Ruby; el tamaño de la clave, el tamaño del valor, el tipo de la clave y el tipo del valor pueden ser serializados y deserializados con los métodos que tengo ahora. El tamaño de la clave y el tamaño del valor solo son enteros empaquetados, el tipo de la clave y el tipo del valor son solo... no, espera, si estarán expresados como símbolos, intentar empacar un símbolo sería raro y ni siquiera sé si es posible, y codificarlos como cadenas de texto como `"Integer"` y así sería ineficiente, porque usaría mucha memoria (comparado con almacenarlos como datos más simples). Así que, en cambio, tal vez puedo guardar los tipos como enteros. Solo un número, y eso sería mucho más eficiente.
+
+Pero guardar los tipos como enteros implica asignar un entero a un tipo (símbolo), así que necesitaría un mapa también. Sí, suena bien. Puedo mapearlos como: `Integer -> 1, Float -> 2, String -> 3`. Así que crearé un nuevo mapa:
+
+```rb
+# src/kv_database/serializer.rb
+# frozen_string_literal: true
+
+module KVDatabase
+  module Serializer
+    DATA_TYPE_INTEGER = {
+      Integer: 1,
+      Float: 2,
+      String: 3
+    }
+
+    # Resto de los mapas y métodos
+  end
+end
+```
+
+Este mapa me permitirá entonces guardar los tipos de claves y valores. Una cosa más que no me gusta es que ambos mapas, `DATA_TYPE_INTEGER` y `DATA_TYPE_FORMAT` están usando prácticamente las mismas claves, pero las estoy repitiendo. No cometí ningún error al escribirlas y todo está bien, pero si solo dependo en los mismos tipos, ¿no deberían compartir claves y tener una sola fuente de verdad? Eso creo. `DATA_TYPE_INTEGER` es el mapa más "agnóstico" (mapear a enteros no parece especial, pero mapear a formatos es necesariamente especial porque esos formatos "hablan" de una implementación específica), así que usaré las claves de él como claves del otro mapa.
+
+```rb
+DATA_TYPE_FORMAT = {
+  DATA_TYPE_INTEGER[:Integer] => "q<",
+  DATA_TYPE_INTEGER[:Float] => "E"
+}
+```
+
+Cambios de sintaxis de `:` a `=>` por... preferencias de Ruby, supongo. Esto, por supuesto, romperá nuestros tests porque el tipo ya no es la clave de `DATA_TYPE_FORMAT`, y ahora los enteros mapeados son las claves. ¿Vale la pena? No lo creo. Realmente me gusta usar símbolos como claves, pero también quiero tener claves compartidas si son las mismas. Así que creo que podría simplemente introducir u nnuevo mapa que mapee tipo con símbolo, lo que parece que complica las cosas de más, pero no es así, porque estos tres mapas tendrán propósitos diferentes.
+
+```rb
+# src/kv_database/serializer.rb
+# frozen_string_literal: true
+
+module KVDatabase
+  module Serializer
+    DATA_TYPE_SYMBOL = {
+      Integer: :Integer,
+      Float: :Float,
+      String: :String
+    }
+
+    # Resto de mapas y métodos
+  end
+end
+```
+
+Y ahora cambiaré las claves de los otros mapas para usar los símbolos mapeados:
+
+```rb
+DATA_TYPE_INTEGER = {
+  DATA_TYPE_SYMBOL[:Integer] => 1,
+  DATA_TYPE_SYMBOL[:Float] =>  2,
+  DATA_TYPE_SYMBOL[:String] => 3
+}
+
+DATA_TYPE_FORMAT = {
+  DATA_TYPE_SYMBOL[:Integer] => "q<",
+  DATA_TYPE_SYMBOL[:Float] => "E"
+}
+```
+
+Y ahora estoy listo para seguir (pero físicamente, porque voy a cenar y descansar). Me parece que este es un buen comienzo.

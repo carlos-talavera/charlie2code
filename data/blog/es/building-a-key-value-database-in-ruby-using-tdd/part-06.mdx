@@ -1,0 +1,563 @@
+---
+title: "Construyendo una base de datos clave-valor en Ruby usando TDD: Parte 06"
+series:
+  order: 6
+  title: "Construyendo una base de datos clave-valor en Ruby usando TDD"
+date: '2025/05/14'
+lastmod: '2025/05/14'
+language: es
+tags: ['testing', 'tdd', 'ruby', 'bases de datos']
+authors: ['default']
+draft: false
+featured: false
+summary: In this sixth part, we'll finish working on the tests and implementations to get and put data in a file.
+---
+
+<TOCInline toc={props.toc} locale={props.locale} asDisclosure />
+
+## Serializer
+
+### Arreglar el modificador de acceso para métodos privados
+
+Antes de sumergirnos en `DiskStore`, simplemente haré privados los métodos que no necesitan ser expuestos en `Serializer`:
+
+```rb
+# Este es el final del módulo Serializer. Me gusta que los métodos públicos estén primero, luego protegidos, y al final, privados.
+private
+
+def self.size(data:, type:)
+  return pack(data: data, type: type).bytes.length
+end
+
+def self.format(type)
+  return DATA_TYPE_FORMAT[DATA_TYPE_INTEGER[type]]
+end
+
+def self.type(data)
+  return data.class.to_s.to_sym
+end
+```
+
+Bien. Los tests siguen pasando, así que está bien.
+
+## DiskStore
+
+### Lo que sé (o lo que creo que sé)
+
+Ahora empecemos a trabajar en la clase `DiskStore`. ¿Qué sé?
+
+Volviendo a lo que sabía al comenzar a trabajar en esto, `DiskStore` necesita escribir nuevos datos en archivos y obtener datos de archivos. Los archivos tendrán una extensión especial porque necesita haber una forma especial de leerlos, y eso es lo que `DiskStore` hará. Esa extensión especial no es tan especial (porque no es tan creativa, podría decir), pero es más que `.txt`. La extensión es simplemente `.db`. Me centraré primero en poner datos, porque si me concentro en obtener datos primero, ni siquiera tendré ejemplos para probarlo.
+
+### Poner datos
+
+Entonces, ¿cuál es el proceso para poner datos? Esencialmente, la idea es:
+
+1. Tomar la clave, el valor y el epoch y serializar los datos.
+2. La serialización de los datos devolverá el tamaño y la cadena binaria. Almacenar la cadena binaria en un archivo después de las anteriores.
+
+Esta función se llamará `put`, ya que pondrá algo en un archivo (increíblemente creativo, lo sé). Como se mencionó anteriormente, necesitará los parámetros `epoch`, `key` y `value`. Ahora la pregunta es, ¿debería devolver algo? Bueno, si no devolviera algo, no tendría una forma de probarlo, porque leer el archivo mientras pruebo que estoy poniendo algo en él sería un test con efectos secundarios. Pero no creo que deba devolver datos de esta función porque solo estaría devolviendo lo que le di, lo cual estaría bien porque me diría que al menos no falló al escribir el registro en el archivo, pero al mismo tiempo, devolver `epoch`, o `key`, o `value` sería solo una cuestión de preferencia. Así que supongo que solo devolverá `nil` y mis tests esperarán que la función devuelva `nil`, lo que significará que no falló al escribir en el archivo.
+
+Pero antes de crear el test. Esto es algo nuevo. Tratar con archivos. Para escribir en un archivo solo necesitas la ruta y alguna configuración opcional como la codificación. Así que no es difícil, solo ten una variable memorizada que contenga esa ruta. Por otro lado, el archivo para probar que `put` funciona se creará sobre la marcha, pero esto es solo con fines de prueba, e imagina escribir en él cada vez que se ejecutan los tests, eventualmente tendría un tamaño enorme, por lo que necesita ser eliminado, limpiado, después de que el test haya terminado.
+
+### Crear el test para poner datos
+
+Usemos este conocimiento en el primer test:
+
+```rb
+# spec/kv_database/disk_store_spec.rb
+# frozen_string_literal: true
+
+RSpec.describe KVDatabase::DiskStore do
+  describe "#put" do
+    let(:test_db_file) { "test_db_file.db" }
+    let(:subject) { described_class.new }
+
+    after do
+      File.delete(test_db_file)
+    end
+
+    it 'puts a kv pair on the disk' do
+      expect(subject.put(Faker::Lorem.word, Faker::Lorem.sentence)).to be_nil
+      expect(subject.put("café", Faker::Lorem.sentence(word_count: 10))).to be_nil
+      expect(subject.put("élite", Faker::Lorem.sentence(word_count: 100))).to be_nil
+      expect(subject.put(Faker::Lorem.word, Faker::Lorem.sentence(word_count: 1000))).to be_nil
+      expect(subject.put(rand(20..128), Faker::Lorem.sentence(word_count: 10_000))).to be_nil
+      expect(subject.put(rand(5.3..40.2345), rand(1..10_000))).to be_nil
+      expect(subject.put(rand(1..102), rand(10.2..100.234))).to be_nil
+    end
+  end
+end
+```
+
+Se ve casi bien. ¿Por qué "casi"? Porque, ¿dónde estoy diciendo que `DiskStore` escribirá en el archivo `test_db_file.db`? Eso me ayuda a ver que necesito una ruta de archivo. Si pasara una ruta de archivo a `put`, estaría haciendo una cosa desagradable porque:
+
+1. Tendría que pasar la ruta del archivo a `put` cada vez.
+2. Podría pasar una ruta de archivo diferente aunque quisiera escribir en el mismo archivo, por lo que tendría muchas fuentes de verdad para la misma instancia de `DiskStore`.
+
+La ruta del archivo no pertenece a `put`, porque cada instancia de `DiskStore` representa un archivo específico. Por lo tanto, `DiskStore` necesita tomar una ruta de archivo cuando se instancia:
+
+```rb
+describe "#put" do
+  let(:test_db_file) { "test_db_file.db" }
+  let(:subject) { described_class.new(test_db_file) }
+
+  after do
+    File.delete(test_db_file)
+  end
+
+  it 'puts a kv pair on the disk' do
+    expect(subject.put(key: Faker::Lorem.word, value: Faker::Lorem.sentence)).to be_nil
+    expect(subject.put(key: "café", value: Faker::Lorem.sentence(word_count: 10))).to be_nil
+    expect(subject.put(key: "élite", value: Faker::Lorem.sentence(word_count: 100))).to be_nil
+    expect(subject.put(key: Faker::Lorem.word, value: Faker::Lorem.sentence(word_count: 1000))).to be_nil
+    expect(subject.put(key: rand(20..128), value: Faker::Lorem.sentence(word_count: 10_000))).to be_nil
+    expect(subject.put(key: rand(5.3..40.2345), value: rand(1..10_000))).to be_nil
+    expect(subject.put(key: rand(1..102), value: rand(10.2..100.234))).to be_nil
+  end
+end
+```
+
+Ahora se ve bien. Por supuesto que fallará. Hacer que este test pase será simple, no, estoy bromeando, no sé por dónde empezar, pero lo resolveré.
+
+### Hacer que el test para `put` pase
+
+Lo primero que sé que necesito es tomar una ruta de archivo y asignarla a un atributo en el constructor de `DiskStore`:
+
+```rb
+# src/kv_database/disk_store.rb
+# frozen_string_literal: true
+
+module KVDatabase
+  class DiskStore
+    def initialize(file_path = '1747099356_kv_database.db')
+      @file_path = file_path
+    end
+  end
+end
+```
+
+Uso un valor predeterminado porque tiene sentido no estar obligado a proporcionar una ruta si solo quieres probarlo. Pero ahora me pregunto, esta ruta se usará para realizar operaciones en un archivo, así que tendré que seguir escribiendo `File.some_method` todo el tiempo, y además de eso, tendría una instancia de `File` diferente y efímera. Por eso creo que el atributo no necesita ser una ruta, sino la instancia real de `File`:
+
+```rb
+def initialize(file_path = '1747099356_kv_database.db')
+  @db_file = File.open(file_path, 'a+b')
+end
+```
+
+`'a+b'` es solo la directiva necesaria para abrir un archivo que contendrá datos binarios, no texto plano, y poder agregar información a él y escribirla al final del archivo. Dado que esta instancia manejará la adición de datos, no necesito preocuparme por llevar un registro de dónde necesito escribir los nuevos datos cada vez que llamo a `put`.
+
+Ahora sé que el método `put` recibirá `epoch`, `key` y `value`, pero el `epoch`, cuando no se proporciona, simplemente será `Time.now.to_i`.
+
+```rb
+def put(key:, value:, epoch: Time.now.to_i); end
+```
+
+Otra cosa que sé es que necesita serializar los datos, y de ahí obtendré `size` y `data`.
+
+```rb
+require_relative 'serializer' # No olvides poner esto al inicio del archivo
+
+def put(key:, value:, epoch: Time.now.to_i)
+  size, data = Serializer.serialize(key: key, value: value, epoch: epoch)
+end
+```
+
+Lo siguiente es realmente almacenar los datos. Para hacer esto, solo necesito llamar al método `write` en `@db_file` y pasarle los datos:
+
+```rb
+def put(key:, value:, epoch: Time.now.to_i)
+  size, data = Serializer.serialize(key: key, value: value, epoch: epoch)
+
+  @db_file.write(data)
+end
+```
+
+Y ahora devolver `nil`:
+
+```rb
+def put(key:, value:, epoch: Time.now.to_i)
+  size, data = Serializer.serialize(key: key, value: value, epoch: epoch)
+
+  @db_file.write(data)
+
+  return nil
+end
+```
+
+Si corro el test ahora, pasará. Eso fue fácil, ¿no? Pero solo fue fácil debido a todo el análisis previo.
+
+### Limpiar el buffer
+
+El test pasa, pero me falta una cosa importante al escribir en archivos, que es eliminar cualquier `buffer` que se haya creado. En caso de que solo puedas pensar en ese mensaje molesto que aparece cuando estás viendo tu película favorita y de repente se detiene "para cargar" cuando lees la palabra `buffer`, está relacionado, pero lo definiré con precisión. Un `buffer` es solo el nombre del lugar donde se almacenan temporalmente los datos binarios cuando se mueve información de un lugar a otro. Son una especie de soporte, ayudando a almacenar datos a medida que llegan y enviándolos al destino esperado. Un ejemplo simple y común de usar un buffer es cuando hay una discrepancia entre la cantidad de datos que un productor puede crear y la cantidad de datos que el consumidor puede recibir. Un buffer almacena los datos producidos y los pasa al consumidor, por lo que el productor no está restringido y el consumidor no está abrumado. Aquí, los datos van de la memoria al disco cuando se escribe en un archivo.
+
+Para eliminar estos buffers, es tan simple como llamar a `flush` en `@db_file`:
+
+```rb
+def put(key:, value:, epoch: Time.now.to_i)
+  size, data = Serializer.serialize(key: key, value: value, epoch: epoch)
+
+  @db_file.write(data)
+  @db_file.flush
+
+  return nil
+end
+```
+
+Ahora no hay buffers huérfanos en la memoria y el test sigue pasando. No estoy usando `size` en este momento, pero veré si lo necesito para leer los datos, si no, solo usaré un guion bajo en su lugar.
+
+### Leer datos
+
+El hecho de que el test pase significa que ahora puedo escribir datos, así que el siguiente paso es poder leerlos. ¿Cómo se verá ese test? Sé que leerá los valores de un archivo buscando por clave. Así que necesito un archivo de prueba para leer. Para eso usaré claves y valores conocidos para saber qué esperar:
+
+```rb
+# src/kv_database/disk_store.rb
+# frozen_string_literal: true
+
+require_relative 'serializer'
+
+module KVDatabase
+  class DiskStore
+    def initialize(file_path = 'kv_database.db')
+      @db_file = File.open(file_path, 'a+b')
+    end
+
+    def put(key:, value:, epoch: Time.now.to_i)
+      size, data = Serializer.serialize(key: key, value: value, epoch: epoch)
+      @db_file.write(data)
+      @db_file.flush
+      return nil
+    end
+  end
+end
+
+if __FILE__ == $0
+  disk_store = KVDatabase::DiskStore.new
+  disk_store.put(key: "café", value: "Super long expression that is not that long")
+  disk_store.put(key: "élite", value: "Some other random expression to say stuff")
+  disk_store.put(key: 1, value: 18)
+  disk_store.put(key: "ipsum", value: 7.23)
+end
+```
+
+Y después de ejecutar este archivo, tendré un archivo `kv_database.db` que moveré a `spec/fixtures/1747099356_kv_database.db` (el número es solo un epoch timestamp, y ahora puedo eliminar ese código y simplemente mantener el módulo como estaba). En caso de que no lo sepas, un `fixture` es solo cualquier dato que necesita existir antes de ejecutar un test, así que es como una `precondición` para ejecutarlo.
+
+### Crear el test para obtener datos
+
+Lo que esperaría de un test para obtener datos es que me dé el valor esperado para la clave dada. `DiskStore` usaría `spec/fixtures/1747099356_kv_database.db` como `file_path`. La función se llamaría `get` (convención común) y tomaría una `key`. Así que el test será este:
+
+```rb
+describe "#get" do
+  let(:test_db_fixture_file) { 'spec/fixtures/1747099356_kv_database.db' }
+  let(:subject) { described_class.new(test_db_fixture_file) }
+
+  it "gets the values from the keys" do
+    expect(subject.get("café")).to eq("Super long expression that is not that long")
+    expect(subject.get("élite")).to eq("Some other random expression to say stuff")
+    expect(subject.get(1)).to eq(18)
+    expect(subject.get("ipsum")).to eq(7.23)
+  end
+end
+```
+
+Asume que las claves existen, y eso está bien. Más adelante puedo preocuparme por las claves inexistentes.
+
+### Pensar en lo que involucra obtener datos
+
+Las cosas se ponen emocionantes ahora, porque no tengo idea de qué hacer, así que veamos qué pasa. Supongamos que escribo un registro y luego escribo otro registro. Si solo intentara ir al archivo para leer el segundo registro usando la clave, no podría recuperar nada, porque algo como buscar la clave en un mar de datos sería muy ineficiente. En su lugar, necesitaría saber dónde comienza el registro y dónde termina, así que en lugar de hablar de claves, estoy hablando del cursor del archivo, es decir, en qué posición estoy actualmente. Si supiera la posición inicial, todavía no sabría la posición final. Pero si voy a leer todo el registro, ¿no es tan fácil como iniciar desde la posición inicial (lo sé, lo sé) y simplemente moverme el tamaño del registro? Si empiezo a contar desde 0 y el tamaño del registro es 10, entonces el registro estará realmente entre 0 y 9, así que si tengo un cursor que aumenta en el tamaño del registro, estoy bien, porque 10 será el punto de partida para el siguiente.
+
+Esto significa que si sé dónde comenzar y el tamaño del registro, sé dónde terminar, y si sé dónde comenzar y dónde terminar, puedo leer lo que hay allí. A partir de esto, sé que necesito rastrear la posición de escritura, porque cada vez que escribo un registro, necesito saber dónde comienza, dónde lo escribí. También necesito almacenar el tamaño del registro cuando lo escribo. Pero, ¿cuál sería una buena manera de almacenar estos datos? Por supuesto que tiene que estar en memoria porque el archivo solo almacena todos los registros, es la aplicación la que necesita saber cómo leerlo. Así que necesito llevar la cuenta de la posición de escritura y el tamaño para un montón de registros en memoria. ¿Puedo usar un arreglo? Puedo, pero dependería de los índices y eso no es realmente confiable. Cuando escribo cada registro, ¿hay alguna información única que pueda usar para identificar cada uno? Ah, sí, tengo la clave, así que puedo crear un mapa usando las claves y cada clave se mapearía a una estructura con la posición de escritura y el tamaño del registro.
+
+Puedo hacer ambas cosas al instanciar `DiskStore`:
+
+```rb
+def initialize(file_path = 'kv_database.db')
+  @db_file = File.open(file_path, 'a+b')
+  @write_position = 0
+  @map = {}
+end
+```
+
+`@write_position` llevará la cuenta de "dónde estoy" en el archivo para considerar todos los registros anteriores, así sé dónde comienza el nuevo registro, y `@map` contendrá `write_position` y `size` para saber de dónde leer. Lo siguiente que debo hacer sería usarlos cuando se escribe un nuevo registro en el archivo, eso significa modificar `put`. Aquí necesito hacer 2 cosas:
+
+1. Aumentar `@write_position` a `@write_position + size`
+2. Almacenar el registro en `@map`
+
+### Rastrear registros y posición en el archivo
+
+Pero antes de hacer esto, voy a comentar los tests para `get` en caso de que algo salga mal con `put`. Después de eso, puedo modificar `put`:
+
+```rb
+def put(key:, value:, epoch: Time.now.to_i)
+  size, data = Serializer.serialize(key: key, value: value, epoch: epoch)
+
+  @db_file.write(data)
+  @db_file.flush
+
+  @map[key] = { write_position: @write_position, size: size }
+  @write_position += size
+
+  return nil
+end
+```
+
+El test no se rompió, así que estamos bien. `@db_file.write(data)` podría generar un error, pero no lo manejo porque si ocurre un error, tiene sentido que esto falle. ¿Por qué? Porque este es un entorno controlado, así que el archivo siempre existirá y los otros posibles errores podrían estar relacionados con permisos, no tener suficiente espacio en el disco o algún error relacionado con el hardware en sí y alguna operación de E/S fallando. Si eso sucede, quizás podría hacer algo sobre los permisos y liberar el espacio, pero si el disco está dañado, solo puedo cambiarlo. Así que pensar en estas situaciones de antemano es en realidad sobreingeniería. El orden aquí importa, porque la posición de escritura que se almacenará en el mapa es "dónde comienzo" (o donde termina el otro), y luego se actualiza para que el siguiente sepa dónde empezar.
+
+### Refactorizar `put`
+
+Aquí puedo ver que `size` sí se utiliza después de todo, así que es bueno que `serialize` lo regrese. Lo siguiente sería un pequeño refactor porque parece que hay demasiadas cosas diferentes sucediendo dentro de `put`.
+
+```rb
+@db_file.write(data)
+@db_file.flush
+```
+
+Esto se puede mover a su propia función `persist(data)`:
+
+```rb
+def persist(data)
+  @db_file.write(data)
+  @db_file.flush
+end
+```
+
+Y ahora a usarla:
+
+```rb
+def put(key:, value:, epoch: Time.now.to_i)
+  size, data = Serializer.serialize(key: key, value: value, epoch: epoch)
+
+  persist(data)
+  @map[key] = { write_position: @write_position, size: size }
+  @write_position += size
+
+  return nil
+end
+```
+
+El test sigue en verde, así que funciona. Ahora puedo introducir una pequeña función auxiliar para aumentar `@write_position`:
+
+```rb
+def increase_write_position(size)
+  @write_position += size
+end
+```
+
+Y ahora a usarla:
+
+```rb
+def put(key:, value:, epoch: Time.now.to_i)
+  size, data = Serializer.serialize(key: key, value: value, epoch: epoch)
+
+  persist(data)
+  @map[key] = { write_position: @write_position, size: size }
+  increase_write_position(size)
+
+  return nil
+end
+```
+
+El test sigue pasando. La línea `@map[key] = { write_position: @write_position, size: size }` podría moverse a una función dedicada, pero no encapsularía nada ni proporcionaría ningún beneficio real, así que la dejaré así.
+
+### Haciendo privados los métodos auxiliares
+
+Ahora es seguro descomentar el test de `get`. Y veo que estos métodos no necesitan ser expuestos, así que serán privados y se colocarán al final:
+
+```rb
+private
+
+def persist(data)
+  @db_file.write(data)
+  @db_file.flush
+end
+
+def increase_write_position(size)
+  @write_position += size
+end
+```
+
+### Inicializar el mapa y la posición de escritura desde el archivo provisto
+
+Lo siguiente que debemos hacer es abordar el problema fundamental para que esta prueba funcione, que es que si quiero obtener el valor de una clave, esa clave debe existir en el mapa, pero en este momento no hay nada que inicialice `@map` y `@write_position` dependiendo del contenido del archivo ubicado en la ruta proporcionada en el constructor. A partir de esto, sé que necesito inicializar `@map` y `@write_position` cuando se crea una instancia de `DiskStore`. Supongo que la inicialización no será trivial, por lo que necesita una función dedicada para no saturar el constructor. Llamaré a esta función `initialize_from_file`. Quizás haya un mejor nombre, pero para mí este me dice lo obvio, lo cual siempre es bueno.
+
+Esta función solo se llamará dentro del constructor y no tomará ningún argumento porque el archivo ya está en `@db_file` (seré más idiomático de Ruby aquí y no usaré paréntesis porque no estoy pasando ningún argumento):
+
+```rb
+def initialize(file_path = 'kv_database.db')
+  @db_file = File.open(file_path, 'a+b')
+  @write_position = 0
+  @map = {}
+  
+  initialize_from_file
+end
+```
+
+Este método también será privado, por lo que irá al final de la clase:
+
+```rb
+# Otros métodos privados
+def initialize_from_file # Me saltaré los paréntesis para seguir siendo idiomático
+
+end
+```
+
+Lo siguiente es, ¿cuál sería el proceso para leer el archivo, identificar cada registro y actualizar tanto el mapa como la posición de escritura? Veamos. Sé el tamaño de checksum + header, porque eso es fijo, pero los tamaños de clave y valor son variables. Voy a leer de un archivo, así que necesito entender cómo funciona. `File.read` mueve el cursor una cierta cantidad de bytes y devuelve lo que se leyó desde la última posición hasta la nueva posición. Si comienzo desde 0 y hago `File.read(10)`, me moveré 10 bytes, por lo que ahora el cursor estará en 10, pero lo que `File.read(10)` devolverá será el contenido de 0 a 9, sin incluir el 10. Puedo pensar en ese número como `"Desde donde estabas, muévete x bytes, y dame lo que estaba entre el byte inicial y el último byte antes de llegar a x"`.
+
+Lo que quiero hacer es básicamente lo que se hace en `deserialize`, con la diferencia de que no sé dónde comenzar y terminar, así que no puedo usarlo directamente. En cambio, esto es lo que puedo hacer:
+
+1. Leer el checksum + header, cuyo tamaño conozco. Esto moverá el cursor al inicio de la clave.
+2. Deserializar el header para obtener el tamaño y el tipo de la clave y el valor.
+3. Leer la clave. Como ya estoy en el byte inicial correcto, y sé el tamaño de la clave, puedo simplemente leer hasta ese tamaño, y el resultado, los datos desde el inicio hasta el final, será simplemente la clave. Esta será la clave empaquetada, recordemos eso.
+4. Hacer lo mismo para el valor.
+5. Deserializar el checksum y verificar si es válido, si no lo es, lanzar un error. Solo es posible validar el checksum hasta este punto porque se necesita todo el registro empaquetado para la comparación, así que solo hasta este punto, se conoce esa información.
+6. Desempaquetar la clave. Aquí no es necesario desempaquetar el valor porque el valor solo se lee al recuperarlo usando la clave. No se utiliza aquí.
+7. Calcular el tamaño sumando el tamaño del checksum + el tamaño del header + el tamaño de la clave + el tamaño del valor.
+8. Almacenar la posición de escritura actual y el tamaño en el mapa.
+9. Incrementar la posición de escritura usando el tamaño.
+10. Repetir mientras haya datos en el archivo. Sabré que todavía hay datos si todavía puedo encontrar un checksum y un header después de terminar con el registro anterior.
+
+Dado que no sé cuántas veces haré esto, puedo simplemente decir "mientras esto suceda, haz esto", aquí significa `"mientras pueda encontrar un checksum y un header, haz (insertar aquí todos los pasos involucrados)"`.
+
+En código:
+
+```rb
+def initialize_from_file
+  while (crc32_and_header = @db_file.read(Serializer::CRC32_SIZE + Serializer::HEADER_SIZE))
+    header_bytes = crc32_and_header[Serializer::CRC32_SIZE..]
+    _, key_size, value_size, key_type, _ = Serializer.deserialize_header(header_bytes)
+
+    key_bytes = @db_file.read(key_size)
+    value_bytes = @db_file.read(value_size)
+
+    checksum = Serializer.deserialize_crc32(crc32_and_header[..Serializer::CRC32_SIZE - 1])
+    raise StandardError, "File corrupted" unless Serializer.is_crc32_valid(checksum, header_bytes + key_bytes + value_bytes)
+
+    key = Serializer.unpack(data: key_bytes, type: key_type)
+
+    size = Serializer::CRC32_SIZE + Serializer::HEADER_SIZE + key_size + value_size
+    @map[key] = { write_position: @write_position, size: size }
+    increase_write_position(size)
+  end
+end
+```
+
+Algunos podrían argumentar que esto no es TDD y que di un gran paso, y tal vez eso sea cierto, pero estoy aprendiendo, y es parte del proceso. Además, si pudiera hacerlo de una sola vez, ¿por qué no?
+
+Sigamos adelante. Este es un método privado, por lo que no hay test para él (y nunca deberías hacer un método público o protegido solo para poder probarlo, hay una razón por la que es privado, porque "vive" bajo la suposición de que algunas cosas ya han sucedido, que la clase ya ha sido "alimentada" con la información necesaria). Algunos podrían argumentar "este método se llama en el constructor y puede lanzar un error", ¿no es malo porque hay un efecto secundario al solo instanciar la clase? ¿No podrías simplemente hacer que este método sea público y llamarlo después de la instanciación y crear un test para él? Para ser honesto, ese es un mejor enfoque en la mayoría de los casos. Aquí creo que es válido porque, como dije antes, quiero que esto falle si algo sale mal. La clase es lo suficientemente pequeña como para no confundirme sobre por qué ocurrió algún error. Es una complejidad manejable. Si esto fuera más grande, pensaría en separar cosas, pero hacerlo ahora sería una decisión prematura y dogmática, y no soy me identifico con ninguno de los dos.
+
+### Hacer que el test para `get` pase
+
+Ahora que esto está en su lugar, es posible pensar en cómo hacer que el test de `get` pase. Asumiré que la clave existe, y una vez que pase este test, manejaré el caso en el que no exista. El proceso ahora es bastante simple. Dada una clave, necesito moverme a la posición donde se escribió el registro, porque ahí es donde comienza. Estando allí, leo hasta el tamaño del registro. Ambas cosas, la posición de escritura y el tamaño, están en el mapa (ahora puedes ver por qué están ahí, espero):
+
+```rb
+def get(key)
+  key_struct = @map[key]
+  @db_file.seek(key_struct[:write_position])
+  _, _, value = Serializer.deserialize(@db_file.read(key_struct[:size]))
+
+  return value
+end
+```
+
+Espera, espera, espera. ¿Qué es esa parte de `@db_file.seek`? Bueno, necesito moverme a la posición donde comienza el registro en el archivo, es decir, moviéndome hasta `key_struct[:write_position]`. Podría usar `read` y eso también funcionaría. Pero eso leería la información hasta esa posición y la devolvería. No lo necesito. No necesito saber qué hay antes del registro que quiero. Solo necesito lo que hay en el registro en sí. Para solo moverse a alguna posición sin leer y sin preocuparse por lo que hay antes, `seek` es la respuesta. Es más eficiente y directo al punto (literalmente). La siguiente parte es simplemente lo que he explicado antes, para saber qué hay allí, es solo cuestión de tomar todo el registro, usando su tamaño como límite, y deserializarlo. Esta vez, `read` es necesario porque, por supuesto, quiero saber qué hay allí.
+
+`deserialize` devuelve `epoch`, `key` y `value`. Solo me importa el valor, así que no asigno los otros dos y solo uso guiones bajos para ellos. Finalmente, devuelvo el valor. Ahora, si recordaste descomentar la prueba de `get`, al ejecutarla finalmente... fallará. ¿Por qué?
+
+![Get test failing](/static/images/building-a-key-value-database-in-ruby-using-tdd/part-06/01.png "01 - Get test failing")
+
+### Arreglar `get`(¿?)
+
+Esto requiere un poco de depuración. Básicamente está diciendo que no encontró la clave en el mapa. Yo haría algo simple y solo vería qué tiene `@map` cuando se ejecuta `get`:
+
+```rb
+def get(key)
+  puts @map
+
+  key_struct = @map[key]
+  @db_file.seek(key_struct[:write_position])
+  _, _, value = Serializer.deserialize(@db_file.read(key_struct[:size]))
+
+  return value
+end
+```
+
+Y esto es lo que veo:
+
+![Printed map](/static/images/building-a-key-value-database-in-ruby-using-tdd/part-06/02.png "02 - Printed map")
+
+Así que el mapa se construye correctamente, pero estoy buscando `"café"`, pero la clave no está codificada correctamente. Aunque las cadenas están codificadas en UTF-8 por defecto en Ruby, ese comportamiento por defecto solo se aplica cuando tienes una cadena plana sin ninguna otra codificación especificada y la imprimes o haces operaciones con ella. Si obtengo `key` desempaquetándola, es una cadena en bruto (ASCII-8-BIT). No se interpreta porque no hay necesidad de interpretación, por lo que cuando la uso como una clave de un mapa, los caracteres especiales no se "entienden" correctamente. Esto causará que cuando imprima el mapa, veré las claves con caracteres especiales como en la imagen anterior. Ruby no sabe que deben interpretarse en UTF-8 porque no hay nada que lo indique. Para ser justos, estas son cosas internas de cada lenguaje, y hasta ahora no había mencionado algo como "metadatos", pero por supuesto, cada cadena y cualquier otro valor necesita llevar alguna información que ayude al lenguaje a entender cómo manejar el valor en sí. En este caso, la codificación vive en los metadatos.
+
+Dado esto, para evitar malinterpretaciones, si la clave es una cadena, entonces necesita ser codificada antes de usarla en el mapa:
+
+```rb
+def initialize_from_file
+  while (crc32_and_header = @db_file.read(Serializer::CRC32_SIZE + Serializer::HEADER_SIZE))
+    header_bytes = crc32_and_header[Serializer::CRC32_SIZE..]
+
+    _, key_size, value_size, key_type, _ = Serializer.deserialize_header(header_bytes)
+
+    key_bytes = @db_file.read(key_size)
+    value_bytes = @db_file.read(value_size)
+
+    crc32 = Serializer.deserialize_crc32(crc32_and_header[..Serializer::CRC32_SIZE - 1])
+    raise StandardError, "File corrupted" unless Serializer.is_crc32_valid(crc32, header_bytes + key_bytes + value_bytes)
+
+    key = Serializer.unpack(data: key_bytes, type: key_type)
+    encoded_key = key_type == :String ? key.force_encoding(Encoding::UTF_8) : key
+
+    size = Serializer::CRC32_SIZE + Serializer::HEADER_SIZE + key_size + value_size
+    @map[encoded_key] = { write_position: @write_position, size: size }
+    increase_write_position(size)
+  end
+end
+```
+
+(En caso de que no lo hayas captado: para enteros y floats, la codificación no tiene sentido y `force_encoding` ni siquiera está disponible).
+
+### Hacer que el test para `get` pase (ahora de verdad)
+
+De esa manera, todo funcionará como se espera y el test pasará:
+
+![Get test passes after encoding key](/static/images/building-a-key-value-database-in-ruby-using-tdd/part-06/03.png "03 - Get test passes after encoding key")
+
+(Ahora no olvides eliminar el `puts @map` para depuración del método `get`). Por supuesto, para mantenerlo simple, podrías simplemente no preocuparte por los caracteres especiales, pero soy de México y el español tiene caracteres especiales, así que quería hacerlo posible.
+
+### Manejar la obtención de claves no existentes
+
+Después de hacer que esto funcione, `DiskStore` está leyendo y escribiendo información correctamente en un archivo y sirviendo como un almacenamiento de clave-valor. Ahora agregaré el toque final, manejando el caso en que la clave no existe en el mapa (lo que significa que no existe en el archivo). Primero, como espero que ya sepas a estas alturas, un test:
+
+```rb
+# Esto va dentro del bloque describe para '#get'
+it "returns empty string when key doesn't exist" do
+  expect(subject.get("nonexistent key")).to eq('')
+  expect(subject.get(48)).to eq('')
+  expect(subject.get(2.90)).to eq('')
+  expect(subject.get("nonexistent key 2")).to eq('')
+end
+```
+
+Esto fallará porque `get` asume que la clave existe. Para hacer que el test pase, la implementación es obvia, si `key_struct` es `nil`, lo que significa que `key` no existe en `@map`, entonces devuelve `''`:
+
+```rb
+def get(key)
+  key_struct = @map[key]
+
+  return '' if key_struct.nil?
+
+  @db_file.seek(key_struct[:write_position])
+  _, _, value = Serializer.deserialize(@db_file.read(key_struct[:size]))
+
+  return value
+end
+```
+
+Y ahora el test pasará. Genial. Se podrían crear más métodos y tests aquí, pero `DiskStore` ya puede funcionar como una base de datos de clave-valor basada en archivos. Fue un ejercicio divertido, ¿verdad? Solo me tomó 5 días (no es broma), pero disfruté trabajar en esto, compartiendo mi proceso de pensamiento y afinando mis habilidades de TDD y aprendiendo cómo algo tan importante hoy en día, un almacenamiento de clave-valor, puede ser implementado. Los tests que tengo hasta ahora parecen ser confiables para cubrir todo el comportamiento implementado, así que los dejaré todos.
+
+## Consideraciones
+
+- El epoch timestamp utiliza 4 bytes (32 bits), y tal vez estés familiarizado con el famoso [Problema del Año 2038](https://theyear2038problem.com), pero eso no es lo que sucederá aquí. El timestamp por defecto puede ser negativo (y representaría fechas antes del 1 de enero de 1970), y usar 4 bytes causaría ese problema. Pero dado que este timestamp no tiene signo, se extiende hasta febrero de 2106 (hice las cuentas, no, estoy bromeando, ChatGPT lo hizo). Así que podría ser preocupante solo poder almacenar timestamps hasta esa fecha, pero para entonces estaré muerto y no sé cómo habrán evolucionado el mundo y el software (o si habrán evolucionado en absoluto), así que dejaré que las personas del futuro se preocupen por eso.
+- No hay límite de tamaño para un archivo, pero debería haberlo, de modo que cuando llegue al máximo, o esté a punto de llegar a él, el registro se almacene en un nuevo archivo. Sin embargo, llevar la cuenta del archivo donde está un registro y manejarlo en `DiskStore` habría agregado mucha más complejidad a un problema ya complejo de abordar. Pero este es un desafío para ti si quieres hacerlo. `Pista: el mapa tendría que incluir la ruta del archivo, y 'put' debería verificar si el tamaño de los datos serializados, más el tamaño del archivo actual, superaría el límite`, pero hay más desafíos que surgen al intentar hacer esto. Diviértete si te embarcas en ese viaje.
+- Si colocas nuevos datos usando una clave existente, se agregarán al final del archivo y el mapa se actualizará, pero el registro antiguo permanecerá en el archivo. ¿Hay realmente una buena manera de eliminarlo? Porque eso tendría que mover todas las posiciones de escritura de los registros después del eliminado.
+
+## Conclusión
+
+Esto fue desafiante, pero bastante divertido. Ahora tengo una mejor comprensión de cómo podría implementarse algo así y mejoré mi comprensión sobre qué probar y qué no probar, y cómo navegar por la incertidumbre cuando no tienes idea de qué hacer a continuación o cuál sería un buen test para escribir. Este proceso implica mucho pensamiento, pero este es precisamente el objetivo, obligarte a pensar en los *tradeoffs*, las partes buenas, las partes malas y todo lo que implica determinar si algún fragmento de código te permitirá dormir tranquilamente por la noche o te hará arrepentirte de tus elecciones.

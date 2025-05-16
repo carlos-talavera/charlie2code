@@ -5,13 +5,15 @@
     "fullstack": 1,
     "javascript": 14,
     "typescript": 14,
-    "testing": 12,
-    "tdd": 11,
+    "testing": 18,
+    "tdd": 17,
     "nextjs": 2,
     "laravel": 3,
     "php": 3,
     "redis": 1,
-    "docker": 2
+    "docker": 2,
+    "ruby": 6,
+    "databases": 6
   },
   "es":{
     "frontend": 1,
@@ -19,12 +21,14 @@
     "fullstack": 1,
     "javascript": 14,
     "typescript": 14,
-    "testing": 12,
-    "tdd": 11,
+    "testing": 18,
+    "tdd": 17,
     "nextjs": 2,
     "laravel": 3,
     "php": 3,
     "redis": 1,
-    "docker": 2
+    "docker": 2,
+    "ruby": 6,
+    "bases de datos": 6
   }
 }

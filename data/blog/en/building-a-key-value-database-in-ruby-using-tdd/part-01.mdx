@@ -1,0 +1,110 @@
+---
+title: "Building a key-value database in Ruby using TDD: Part 01"
+series:
+  order: 1
+  title: "Building a key-value database in Ruby using TDD"
+date: '2025/05/09'
+lastmod: '2025/05/09'
+language: en
+tags: ['testing', 'tdd', 'ruby', 'databases']
+authors: ['default']
+draft: false
+featured: true
+summary: In this first part, we'll see the theory behind the implementation of a key-value database in Ruby inspired by the Bitcask model.
+---
+
+## Introduction
+
+Every now and then I like to try out new things to broaden and level up my software engineering skills. In this ocassion, I wanted to learn Ruby just for fun, and at the same time I wanted to practice the workflow of TDD. If you don't know what TDD is or how it works, you can check the articles where I solve programming katas. I wanted an interesting challenge, because I think that only a really difficult task can make you improve as a developer, and, in this case, with the added benefit of learning a new language and covering the functionality with tests. It might seem like a hardcore way to learn, and it is, but it's the only way I know to keep being curious and never forget the value and difficulty of gaining knowledge.
+
+Digging into the [Build your own X repository](https://github.com/codecrafters-io/build-your-own-x), I found a pretty interesting project: how to build your own key-value database in Ruby. Exactly what I was looking for. Challenging and in Ruby. [This is the article](https://dineshgowda.com/posts/build-your-own-persistent-kv-store/). That article is, in turn, based on the [Bitcask model for a database](https://riak.com/assets/bitcask-intro.pdf). That said, the purpose of this first part is for me to explain the basics with my own style before jumping into working on it.
+
+<TOCInline toc={props.toc} exclude="Introduction" locale={props.locale} asDisclosure />
+
+> Disclaimer: building this involves understanding that data in a computer is stored in binary, and for better human readability, binary is represented in hexadecimal. If you're not sure you understand, check [this article](http://www.facweb.iitkgp.ac.in/~bibhas/Hex_Memory_Addressing.pdf)
+
+## Understanding what key-value means
+
+If you're familiar with [Redis](https://redis.io), for example, that's just a key-value database with a huge amount of features. The idea is to have a map where we can store something using a unique "key" as identifier. That way, when we want to retrieve it, we just need the key. If the key doesn't exist, we'll get nothing. The interesting part comes when thinking how such a thing would work. How can I store keys and values in an efficient and persistent way? Any programming language has some kind of map, but that is stored in memory, only at runtime, and it's lost when the program terminates. The only way to persist the data is by using files, files containing information in a special format that can be understood by our program. 
+
+## The Bitcask Model
+
+The base model used to achieve this is called `Bitcask`. I adjusted the image included in the [original article](https://dineshgowda.com/posts/build-your-own-persistent-kv-store/) to illustrate how each record will be stored:
+
+![Bitcask model for a database](/static/images/building-a-key-value-database-in-ruby-using-tdd/shared/01.svg "01 - Bitcask model for a database")
+
+Why are there so many things? Can't we use just the key and the value and be happy? The answer is: **no**. We cannot do that because we don't know what will be in the key and the value. We don't know their sizes because they're variable. Imagine putting the records in a file with only key and value:
+
+I put record 1, then I put record 2. We'll assume that writing into a file is always writing at the end of it, so we can put records in there without any issue. Now let's think about getting them. I want the record 2. Its key is `key2`. How can I know where it is? You might think "By searching for that word in the file". You can do that, if you want to grow gray hair in time record. That approach won't work because, besides being very inefficient, a value might contain a key, so you'll be reading some random value that is not what you're looking for.
+
+> The header of the record will just be metadata that is needed to know how to "understand" the key and the value. It's like the headers of an HTTP request and a response, each of them tell the server and the client how to interpret the information to handle it properly.
+
+### Brief pause to understand how data will be stored and why
+
+Any segment of this model won't be stored as it is. The reason is simple. Say you have the number `123456`. If you try to go and put that in a file, it will be stored as a string, so you'll be storing `6 characters = 6 bytes`, since these numbers can be represented in ASCII, where `1 character = 1 byte`. But the number `123456`, as an integer, doesn't need 6 bytes. It's binary representation is `1 11100010 01000000`, that's just 3 bytes (barely, because the 3rd one, from right to left, only uses 1 bit). So just storing everything as it is would be a waste of space. That's why all the data of a record will be stored converted to its binary representation, or being more precise, their hexadecimal representation. Well, that's one reason, the other reason is that everything needs to be in the same format so we can create a deterministic process to extract the information.
+
+We just use hexadecimal because binary is inherently long and difficult to understand, but the data by itself is of course only understood in binary terms by a computer. Following the example, this number, `123456`, would be expressed as `1E240` in hexadecimal. Hexadecimal representations are grouped in groups of 2 digits (sorry for the redundancy, but sounds better), where each group represents 1 byte. Separating this, we would have `1 E2 40`, but the first one is missing a digit, so a 0 is placed in there to fill that void: `01 E2 40`. 
+
+> Since any data can be converted into binary (and that into hexadecimal), it doesn't matter how complex it is or the type, because at the end of the day is just a collection of ordered bytes
+
+If you want to express a number in hexadecimal in any programming language, you can prefix it with `0x` and write `0x01E240`. The language will understand that you mean `123456`. But we don't want to deal with this information like that, because we want to store it into a file. Files, by definition, can only contain text (regardless how you see it), so this information will be stored as a string. In Ruby, and I guess in every language, when you want to represent such a thing as a string, you need to put `"\x"` to indicate the separation between bytes. For our example, we would have `"\x01\xE2\x40"` (yes, it's even needed at the beginning). It doesn't matter if the letters are uppercase or lowercase, it's expected that the language can handle both, so I can simply use `"\x01\xe2\x40"` and I will get the same result.
+
+I'll refer to these strings as `binary strings` in the whole series. While they're expressed in hexadecimal, they're in binary under the hood, it's just that binary is too hard for us to read. You might think that if we're going to write `"\x01\xe2\x40"` in a file, then we have more than 6 characters. The trick is, more than 6 characters for whom? A binary string doesn't work like that. `"\x` is just an indicator of where a byte starts, and every 2-digit group is just 1 byte. So this is 3 bytes all the time. I know it might be confusing, but we're humans, not computers, so we'll always have the human-interpretation bias, and sometimes things are not as we would express them in our daily life.
+
+Now, if you're wondering: "Okay, say I have that string, how will the language know that it means `01 E2 40`, which means the integer `123456` and not anything else?". Well, the answer is that by default it won't, because it doesn't know how to interpret it. That binary string could mean anything, it could be a word, for example. The only thing that any computer will know is that this is 3 bytes. The key to this is to understand that we're talking about conversion, and conversion involves knowing how to pass from `123456` to `"\x01\xe2\x40"`. That is, an algorithm. Fortunately we don't have to implement such a thing because there's a library with methods for it, but we do need to tell what kind of data we're converting.
+
+With "kind of data" I mean both type and size. Of course I need to say how much space this will need. Going back to the example, `123456` fits into 3 bytes, but say I receive that number in a situation where I know I could receive larger numbers that need 4 bytes at most, that's why I what I would say would be "convert this integer to a binary string of 4 bytes". `123456` would just have an empty extra byte, but not wasting some space is impossible. **The goal is to waste the least**.
+
+> In the following parts, I'll talk about `"packing data"`, because that's what will be happening when we create binary strings
+
+### Endianness
+
+Weird term, but it just means "ordering the bytes from the perspective of the left or the right". It's based on the "significance" of the byte within the collection. To understand this, let's remember that number systems are positional. In decimal, we know that 1 is less than 10. The difference is the position of the 1. When we have 1 digit, due to its position, it's multiplied by $10^0$, which is 1, so it's just the value itself. When we have 2 digits, as with 10, 1 is multiplied by $10^1$, so it represents 10, not 1. Then we have the 0 which is 0 by $10^0$, which is just 0. Finally we have `10 + 0 = 10`. This tells us that the rightmost digit is the least significant one, because it contributes the least. As we move towards the left, each digit becomes more important, so the leftmost digit is the most significant one.
+
+Going to the simple hexadecimal version of `123456`, we have `01 E2 40`. This representation would be called `"big endian"`, because `01` is the most significant byte and is the first one we see when reading this from left to right. Starting from the least significant byte, `40`, we would have `40 E2 01`, which would be called `"little endian"`.
+
+You might be wondering why I explained this. To indicate how the data will be converted into binary, this also matters, we can also specify if we're using `"big endian"` or `"little endian"`, and it's important to be clear on this so any system is capable of properly interpreting the stored data. For this project, I'll use `"little endian"` because... I want. No, for real, none is better than the other. It's just a matter of preference.
+
+With all this stuff explained, let's understand each segment of the Bitcask model. The order is also important, and we'll see why.
+
+### CRC
+
+CRC stands for [Cyclic Redundancy Check](https://www.geeksforgeeks.org/modulo-2-binary-division/). We don't need to understand how to implement it, because Ruby already provides a library for it, but if you want to dive into how it works internally, go ahead. The important thing to understand here is that we need some sort of security measure to prevent file corruption. For example, if someone finds the way to modify a record, or something goes wrong with the program and the record is not properly stored, we need a way to know it. This algorithm generates a checksum. That checksum will be generated using the rest of the data of the record. When retrieving the record using its key, the stored checksum will be compared with the checksum generated from the retrieved data and if they're not the same, then it means the file is corrupted.
+
+There are plenty of versions of this algorithm, that even differ on the size of the checksum, i. e., if it's 8 bits, 16 bits or 32 bits. The library included in Ruby implements a version of 32 bits. That's why 4 bytes are reserved for it. This is the first segment because it's the "extra part" that doesn't actually belong to the record data itself. If I want to extract it for validation, it's easier to just say "take the first 4 bytes", than saying "take from `x` to `y` byte", so having this in any other position would complicate the identification of each segment.
+
+### Epoch
+
+This is just a timestamp containing the number of milliseconds elapsed since the midnight of January 1st, 1970. For more details, check [this](https://www.narrative.io/knowledge-base/concepts/data-terms/what-is-unix-time). This segment will store the epoch timestamp at the time of creating the record and it's for auditing purposes. Think of it as a `created_at` field. 4 bytes are reserved for it as well. At the end of this journey, we'll learn what implies to use 4 bytes only.
+
+### Key Size
+
+As mentioned before, it's impossible to know how to read keys and values without knowing the starting and ending positions of each record. That's why this key size is needed. If you know how much space the checksum takes, and you know how much space the header takes, then you can start at the end of the header, read up to the size of the key, and you will be reading the key.
+
+### Value Size
+
+Following the key size logic, if you already moved to the end of the key, now you can start reading the value until you reach its size.
+
+### Key Type
+
+Say you have the key represented as a binary string. Now you want to take what's in there and get the original value. For that you need a way to understand what's inside. It's not the same interpreting an integer than interpreting a string. If you have a collection of bytes, and that's an integer, you know that that's mapped to a single thing, the integer itself. If it's a string instead, it can be a word, or it can be a whole sentence, and there might be special characters, so you need to treat it in a different way. In the following parts of this series we'll see exactly how a type is stored and why only 1 byte is used.
+
+### Value Type
+
+Same logic than for the key type.
+
+### Key
+
+Our unique identifier for easy retrieval. Anything could be in here. This and the value need to come after the header because otherwise it would be way more complicated to "play" with the indices. In general, when you understand the why of something, it's usually because it's convenient.
+
+### Value
+
+The reason of everything. The precious thing we want to preserve. As the key, this can be anything it wants to be.
+
+## Link to GitHub repository
+
+You can find the final version [here](https://github.com/carlos-talavera/tdd-practice/tree/main/01-kv-database-ruby).
+
+## What to expect from the next parts
+
+The next parts are written with the intention of being like a pair programming session. I wrote things as I understood them, so I share there my thoughts, mistakes, assumptions and everything involved in the process. There will be no introductions nor conclusions (well, the final part does have a conclusion), it's just authentic and on-the-fly writing. I explain again concepts that I have already explained here, but I wanted to have this first part as an ordered and compact place to share that knowledge, and because I might not explain something in such depth if I assume it's already clear. With that said, have fun.

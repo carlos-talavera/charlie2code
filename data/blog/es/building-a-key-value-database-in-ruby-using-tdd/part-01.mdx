@@ -1,0 +1,110 @@
+---
+title: "Construyendo una base de datos clave-valor en Ruby usando TDD: Parte 01"
+series:
+  order: 1
+  title: "Construyendo una base de datos clave-valor en Ruby usando TDD"
+date: '2025/05/09'
+lastmod: '2025/05/09'
+language: es
+tags: ['testing', 'tdd', 'ruby', 'bases de datos']
+authors: ['default']
+draft: false
+featured: true
+summary: En esta primera parte, veremos la teoría detrás de la implementación de una base de datos clave-valor en Ruby inspirada en el modelo Bitcask.
+---
+
+## Introducción
+
+De vez en cuando me gusta probar nuevas cosas para ampliar y elevar mis habilidades de ingeniería de software. En esta ocasión, quería aprender Ruby solo por diversión, y al mismo tiempo quería practicar el flujo de trabajo de TDD. Si no sabes qué es TDD o cómo funciona, puedes checar los artículos donde resuelvo katas de programación. Quería un reto interesante, porque pienso que solo una tarea realmente difícil puede hacerte mejorar como desarrollador, y, en este caso, con el beneficio agregado de aprender un nuevo lenguaje y cubrir la funcionalidad con tests. Puede parecer una forma intensa de aprender, y lo es, pero es la única forma que conozco para seguir siendo curioso y nunca olvidar el valor y la dificultad de ganar conocimiento.
+
+Indagando en el [repositorio Build your own X](https://github.com/codecrafters-io/build-your-own-x), encontré un artículo muy interesante: cómo construir tu propia base de datos clave-valor en Ruby. Exactamente lo que estaba buscando. Retador y en Ruby. [Este es el artículo](https://dineshgowda.com/posts/build-your-own-persistent-kv-store/). Ese artículo está, a su vez, basado en el [modelo Bitcask para una base de datos](https://riak.com/assets/bitcask-intro.pdf). Dicho eso, el propósito de esta primera parte es que yo explique lo básico con mi propio estilo antes de ponerse a trabajar en ello.
+
+<TOCInline toc={props.toc} exclude="Introducción" locale={props.locale} asDisclosure />
+
+> Disclaimer: construir esto implica entender que los datos en una computadora se almacenan en binario, y para una mejor legibilidad humana, el binario se representa en hexadecimal. Si no estás seguro de que entiendes, revisa [este artículo](http://www.facweb.iitkgp.ac.in/~bibhas/Hex_Memory_Addressing.pdf).
+
+## Entender qué significa clave-valor
+
+Si estás familiarizado con [Redis](https://redis.io), por ejemplo, esa es solo una base de datos clave valor con una enorme cantidad de características. La idea es tener un mapa donde podamos almacenar algo usando una "clave" única como identificador. De esa forma, cuando queramos obtenerlo, solo necesitamos la clave. Si la clave no existe, no obtendremos nada. La parte interesante viene cuando pensamos en cómo funcionaría algo así. ¿Cómo puedo guardar claves y valores de forma eficiente y persistente? Cualquier lenguaje de programación tiene algún tipo de mapa, pero eso se guarda en memoria, solo en tiempo de ejecución, y se pierde cuando el programa termina. La única forma de persistir la información es usando archivos, archivos que contengan información en un formato especial que puede ser entendido por nuestro programa.
+
+## El Modelo Bitcask
+
+El modelo base usado para lograr esto se llama `Bitcask`. Ajusté la imagen incluida en el [artículo original](https://dineshgowda.com/posts/build-your-own-persistent-kv-store/) para ilustrar cómo se puede almacenar cada registro:
+
+![Bitcask model for a database](/static/images/building-a-key-value-database-in-ruby-using-tdd/shared/01.svg "01 - Bitcask model for a database")
+
+¿Por qué hay tantas cosas? ¿No podemos simplemente usar la clave y el valor y ser felices? La respuesta es: **no**. No podemos hacer eso porque no sabemos qué habrá en la clave y el valor. No sabemos sus tamaños porque son variables. Imagina poner los registros en un archivo solo con clave y valor:
+
+Pongo registro 1, después pongo el registro 2. Asumiremos que escribir en un archivo es siempre escribir al final de él, así que podemos poner registros ahí sin ningún problema. Ahora vamos a pensar acerca de obtenerlos. Quiero el registro 2. Su clave es `key2`. ¿Cómo puedo saber dónde está? Podrás pensar "Buscando esa palabra en el archivo". Puedes hacer eso, si es que quieres que te salgan canas en tiempo récord. Ese enfoque no funcionará porque, además de ser muy ineficiente, un valor puede contener una clave, así que estarás leyendo algún valor aleatorio que no es lo que estás buscando.
+
+> El "header" o cabecera del registro simplemente serán los metadatos que se necesitan para saber cómo "entender" la clave y el valor. Es como las cabeceras de una petición HTTP y una respuesta, cada una de ellas le dice al servidor y al cliente cómo interpretar la información para manejarla correctamente.
+
+### Pequeña pausa para entender cómo se guardará la información y por qué
+
+Cualquier segmento de este modelo no se guardará tal cual. La razón es simple. Digamos que tienes el número `123456`. Si tratas de ir y ponerlo en un archivo, se guardará como una cadena de texto, así que estarás guardando `6 caracteres = 6 bytes`, ya que estos números pueden representarse en ASCII, donde `1 caracter = 1 byte`. Pero el número `123456`, como un entero, no necesita 6 bytes. Su representación en binario es `1 11100010 01000000`, eso es solo 3 bytes (apenas, porque el 3ro, de derecha a izquierda, solo usa 1 bit). Entonces solo guardar todo tal cual sería un desperdicio de espacio. Por eso es que todos los datos de un registro serán almacenados convertidos a su representación binaria, o siendo más precisos, a su representación hexadecimal. Bueno, esa es una razón, la otra razón es que todo necesita estar en el mismo formato para poder crear un proceso determinista para extraer la información.
+
+Solo usamos hexadecimal porque el binario es inherentemente largo y difícil de entender, pero los datos por sí mismos por supuesto que solo son entendidos en binario por una computadora. Siguiendo el ejemplo, este número, `123456`, sería expresado como `1E240` en hexadecimal. Las representaciones hexadecimales se agrupan en grupos de 2 dígitos (perdón por la redundancia, pero suena mejor), donde cada grupo representa 1 byte. Separando esto, tendríamos `1 E2 40`, pero al primero le falta un dígito, así que se coloca un 0 ahí para rellenar ese vacío: `01 E2 40`.
+
+> Dado que cualquier dato puede ser convertido a binario (y eso en hexadecimal), no importa qué tan complejo sea o cuál es su tipo, porque al final del día es solo una colección de bytes ordenados
+
+Si quieres expresar un número en hexadecimal en cualquier lenguaje de programación, puedes colocar el prefijo `0x` y escribir `0x01E240`. El lenguaje entenderá que te refieres a `123456`. Pero no queremos lidiar con esta información de esa manera, porque queremos guardarla en un archivo. Los archivos, por definición, solo pueden contener texto (sin importar cómo lo veas), así que esta información se guardará como una cadena de texto. En Ruby, y supongo que en todos los lenguajes, cuando quieres representar algo así como una cadena de texto, necesitas colocar `"\x"` para indicar la separación entre bytes. Para nuestro ejemplo, tendríamos `"\x01\xE2\x40"` (sí, incluso se necesita al inicio). No importa si las letras son mayúsculas o minúsculas, se espera que el lenguaje pueda manejar ambas, así que puedo simplemente usar `"\x01\xe2\x40"` y obtendré el mismo resultado.
+
+Llamaré a estas cadenas de texto `cadenas binarias` en toda la serie. Si bien se expresan en hexadecimal, están en binario por debajo, es solo que el binario es demasiado difícil de leer para nosotros. Podrías pensar que si vamos a escribir `"\x01\xe2\x40"` en un archivo, entonces tenemos más de 6 caracteres. El truco es, más de 6 caracteres para quién? Una cadena binaria no funciona así. `"\x` es solo un indicador de dónde empieza un byte, y todos los grupos de 2 dígitos solo son 1 byte. Así que esto es 3 bytes siempre. Sé que puede parecer confuso, pero somos humanos, no computadoras, así que siempre tendremos el sesgo de la interpretación humana, y a veces las cosas no son como las expresaríamos en nuestra vida diaria.
+
+Ahora, si te estás preguntado: "De acuerdo, digamos que tengo esa cadena de texto, ¿cómo el lenguaje sabrá que significa que significa `01 E2 40`, lo que significa el entero `123456` y no cualquier otra cosa?". Bueno, la respuesta es que por defecto no lo sabrá, porque no sabe cómo interpretarlo. Esa cadena binaria podría significar cualquier cosa, podría ser una palabra, por ejemplo. La única cosa que cualquier computadora sabrá es que esto son 3 bytes. La clave para esto está en entender que estamos hablando de la conversión, y la conversión involucra saber cómo pasar `123456` a `"\x01\xe2\x40"`. Es decir, un algoritmo. Afortunadamente no necesitamos implementar tal cosa porque hay una librería con métodos para ello, pero sí necesitamos decir qué tipo de información estamos convirtiendo.
+
+Con "tipo de información" me refiero tanto a tipo como a tamaño. Claro que necesito indicar cuánto espacio va a necesitar esto. Retomando el ejemplo, `123456` cabe en 3 bytes, pero digamos que necesito recibir ese número en una situación donde sé que podría recibir números más grandes que necesitan como mucho 4 bytes, por eso es que lo que diría sería "convierte este entero a una cadena binaria de 4 bytes". `123456` simplemente tendría un byte extra vacío, pero no desperdiciar algo de espacio es imposible. **El objetivo es desperdiciar lo menos**.
+
+> En las próximas partes, hablaré de `"empaquetar datos"`, porque eso es lo que estará pasando cuando creemos cadenas binarias
+
+### Endianness (extremidad)
+
+Término raro, pero simplemente significa "ordenar los bytes desde la perspectiva de la izquierda o la derecha". Se basa en la "significancia" de un byte dentro de la colección. Para entender esto, recordemos que los sistemas numéricos son posicionales. En decimal, sabemos que 1 es menos que 10. La diferencia está en la posición del 1. Cuando tenemos 1 dígito, debido a su posición, se multiplica por $10^0$, lo que es 1, así que solo es el valor mismo. Cuando tenemos 2 dígitos, como con 10, 1 es multiplicado por $10^1$, así que representa 10, no 1. Luego tengo el 0 que es simplemente 0 por $10^0$, lo que es solo 0. Finalmente tenemos `10 + 0 = 10`. Esto nos dice que el dígito en el extremo derecho es el menos significativo, porque contribuye lo menos. Conforme nos movemos hacia la izquierda, cada dígito se hace más importante, así que el dígito en el extremo izquierdo es el más significativo.
+
+Regresando a la versión hexadecimal simple de `123456`, tenemos `01 E2 40`. Esta representación se llamaría `"big endian"` (extremo grande, algo así), porque `01` es el byte más significativo y es el primero que vemos cuando leemos esto de izquierda a derecha. Empezando desde el byte menos significativo, `40`, tendríamos `40 E2 01`, lo que se llamaría `"little endian"` (extremo pequeño, algo así).
+
+Tal vez te estarás preguntando por qué expliqué esto. Para indicar cómo los datos serán convertidos a binario, esto también importa, porque también podemos especificar si estamos usando `"big endian"` o `"little endian"`, y es importante estar claros en esto para que cualquier sistema sea capaz de interpretar correctamente los datos almacenados. Para este proyecto, usaré `"little endian" porque... yo quiero. No, de verdad, ninguno es mejor que el otro. Es solo una cuestión de preferencia.
+
+Con todas estas cosas explicadas, vamos a entender cada segmento del modelo Bitcask. El orden también importa, y veremos por qué.
+
+### CRC
+
+CRC hace referencia a [Cyclic Redundancy Check](https://www.geeksforgeeks.org/modulo-2-binary-division/), o `Chequeo de Redundancia Cíclico` en español. No necesitamos entender cómo implementarlo, porque Ruby ya provee una librería para ello, pero si quieres profundizar en cómo funciona internamente, adelante. Lo que es importante entender aquí es que necesitamos alguna clase de medidad de seguridad para prevenir la corrupción de los archivos. Por ejemplo, si alguien encuentra la manera de modificar un registro, o algo sale mal con el programa y el registro no se guarda correctamente, necesitamos una manera de saberlo. Este algoritmo genera un `checksum` o `suma de comprobación`. Ese checksum será generado usando el resto de los datos del registro. Al obtener el registro usando su clave, el checksum guardado se comparará con el checksum generado a partir de los datos obtenidos y si no son iguales, entonces eso significa que el archivo está corrupto.
+
+Hay muchas versiones de este algoritmo, que incluso difieren en el tamaño del checksum, es decir, si es de 8 bits, 16 bits, o 32 bits. La librería incluida en Ruby implementa una versión de 32 bits. Ese es el motivo por el que se reservan 4 bytes para él. Este es el primer segmento porque es la "parte extra" que realmente no pertenece a la información del registro por sí misma. Si quiero extraerlo para validación, es más fácil decir "toma los primeros 4 bytes", a decir "toma de `x` a `y` byte, así que tener esto en cualquier otra posición complicaría la identificación de cada segmento.
+
+### Epoch
+
+Este es solo un `timestamp` o `estampa de tiempo` que contiene el número de segundos transcurridos desde la medianoche del 1 de enero de 1970. Para más detalles, checa [esto](https://www.narrative.io/knowledge-base/concepts/data-terms/what-is-unix-time). Este segmento guardará el epoch timestamp al momento de crear un registro y es para fines de auditoría. Piensa en él como un campo `created_at`. 4 bytes se reservan para él también. Al final de este viaje, aprenderemos qué implica solo usar 4 bytes.
+
+### Tamaño de la clave
+
+`Key Size`. Como se mencionó antes, es imposible saber cómo leer claves y valores sin saber las posiciones inicial y final de cada registro. Por eso es que se necesita este tamaño de clave. Si sabes cuánto espacio toma el checksum, y sabes cuánto espacio toma todo el header, entonces puedes empezar al final del header, leer hasta el tamaño de la clave, y estarás leyendo la clave.
+
+### Tamaño del valor
+
+`Value Size`. Siguiendo la lógica del tamaño de clave, si ya te moviste al final de la clave, ahora puedes empezar a leer el valor hasta que hayas alcanzado su tamaño.
+
+### Tipo de la clave
+
+`Key Type`. Digamos que tienes una clave representada como una cadena binaria. Ahora quieres tomar lo que hay ahí y obtener el valor original. Para eso necesitas una manera de entender qué es lo que está dentro. No es lo mismo interpretar un entero a interpretar una cadena de texto. Si tienes una colección de bytes, y eso es un entero, sabes que está mapeado a una sola cosa, el entero mismo. Si en cambio es una cadena de texto, puede ser una palabra, o puede ser una oración completa, y podría haber caracteres especiales, así que necesitas tratarla de una manera distinta. En las partes siguientes de esta serie veremos exactamente cómo un tipo es almacenado y por qué solo 1 byte se usa.
+
+### Tipo del valor
+
+Misma lógica que para el tipo de la clave.
+
+### Clave
+
+Nuestro identificador único para fácil obtención. Cualquier cosa podría estar aquí. Esto y el valor necesitan estar después del header porque de otra forma sería mucho más complicado "jugar" con los índices. En general, cada vez que no entiendas el por qué de algo, suele ser porque es conveniente.
+
+### Valor
+
+La razón de todo. La cosa preciada que queremos preservar. Como la clave, puede ser lo que sea que quiera ser.
+
+## Enlace al repositorio de GitHub
+
+Puedes encontrar la versión final [aquí](https://github.com/carlos-talavera/tdd-practice/tree/main/01-kv-database-ruby).
+
+## Qué esperar de las próximas partes
+
+Las próximas partes están escritas con la intención de ser como una sesión de `pair programming`. Escribí las cosas conforme las iba entendiendo, así que ahí comparto mis pensamientos, errores, suposiciones y todo lo involucrado en el proceso. No habrá introducciones ni conclusiones (bueno, la última parte sí tiene una conclusión), es solo redacción auténtica y sobre la marcha. Explico de nuevo conceptos que ya he explicado aquí, pero quería tener esta primera parte como un lugar ordenado y compacto para compartir ese conocimiento, y porque podría no explicar algo con tal profundidad si asumo que ya está claro. Dicho eso, diviértete. 

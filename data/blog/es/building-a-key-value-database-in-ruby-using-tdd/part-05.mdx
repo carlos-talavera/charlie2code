@@ -1,0 +1,575 @@
+---
+title: "Construyendo una base de datos clave-valor en Ruby usando TDD: Parte 05"
+series:
+  order: 5
+  title: "Construyendo una base de datos clave-valor en Ruby usando TDD"
+date: '2025/05/13'
+lastmod: '2025/05/13'
+language: es
+tags: ['testing', 'tdd', 'ruby', 'bases de datos']
+authors: ['default']
+draft: false
+featured: false
+summary: In this fifth part, we'll finish working on the tests and implementations to serialize and deserialize data.
+---
+
+<TOCInline toc={props.toc} locale={props.locale} asDisclosure />
+
+## Serializer
+
+### Hacer que los tests para `deserialize` pasen
+
+Veamos cómo hacer que los tests de `deserialize` pasen. Por supuesto, no es posible crear una implementación falsa porque tengo tres tests diferentes, e incluso si tuviera solo una, una implementación falsa no me ayudaría a descubrir cómo hacer que esto pase. Así que lo que puedo hacer es pensar en cómo puedo extraer cada parte, comenzando por el timestamp de época. Sé que la primera parte es el checksum, así que... espera, si la primera parte es el checksum, ¿no debería comenzar verificando que sea correcto porque ese es el propósito del checksum? Pero eso requeriría más tests y ahora tengo tests en rojo, así que lo dejaré para cuando los tests actuales ya pasen.
+
+Sé que el checksum utiliza 4 bytes, así que si "me muevo" 4 bytes, terminaré en el timestamp de época. La pregunta es, en una cadena binaria, ¿cómo me "muevo" a través de los bytes? Jugando en el IRB (Interactive Ruby), vi que puedo acceder a cada byte usando su posición dentro de la cadena:
+
+![IRB](/static/images/building-a-key-value-database-in-ruby-using-tdd/part-05/01.png "01 - IRB")
+
+Lo complicado aquí, y por qué hablé tanto sobre codificación, es que la cadena binaria en el ejemplo contiene `"café"`, pero `"é"` necesita dos bytes, pero si accedo a ella en `data[21]`, veré todo, aunque me falte `data[22]`. ¿Por qué? Porque Ruby está interpretando la cadena en UTF-8 por defecto, por lo que "detecta" el primer byte del carácter `"é"`, toma el segundo y muestra todo. Pero esto es solo una nota al margen porque es por eso que, para evitar este malabarismo y confusión, he almacenado los tamaños de clave y valor en los datos serializados. Ahora divirtámonos con algunas matemáticas:
+
+Sé que si me muevo 4 bytes a la derecha para saltar el checksum, comenzaré en `data[4]` para el epoch timestamp, y si su tamaño es de 4 bytes, entonces termina en `data[7]`. Para la clave, sé que `key_size` está en `data[8]` a `data[11]` (4 bytes también). Para el valor, sé que `value_size` está en `data[12]` a `data[15]` (4 bytes también). Luego, para los tipos, tengo `key_type` en `data[16]`, ya que es solo 1 byte, y `value_size` está en `data[17]`. Por lo tanto, la `key` comienza en `data[18]` y termina en `data[18 + (key_size - 1)]`. Si `key_size` es 3, entonces cubriría 18, 19 y 20, así que `18 + (3 - 1) = 18 + 2 = 20`. Eso significa que el `value` comienza en `data[18 + key_size]` y termina en `data[18 + key_size + (value_size - 1)]` (o en términos prácticos, hasta el final de los datos).
+
+Uso tamaños fijos porque los conozco, pero estos valores dependerán de los tamaños definidos en las constantes, y por supuesto, dado que los tamaños están empaquetados, necesito desempaquetarlos primero para obtener el valor real. Así que vayamos paso a paso. Primero a identificar el epoch timestamp:
+
+```rb
+def self.deserialize(data)
+  unpacked_epoch = unpack(data[CRC32_SIZE], ?)
+end
+```
+
+Oh, en realidad no puedo hacerlo uno por uno porque el formato está en `HEADER_FORMAT`. Bueno, entonces, no necesito ir uno por uno porque conozco el rango del header y luego puedo usar los tamaños para conocer el rango de los datos. El rango para el header es `CRC32_SIZE` a `CRC32_SIZE + HEADER_SIZE - 1`. Así que:
+
+```rb
+def self.deserialize(data)
+  header_data = data[CRC32_SIZE..CRC32_SIZE + HEADER_SIZE - 1].unpack(HEADER_FORMAT)
+  return [header_data[0], 0, 0]
+end
+```
+
+`..` en Ruby es para crear un rango inclusivo (incluye el final). De esta manera, puedo devolver un arreglo con el epoch timestamp en la primera posición, y luego solo ceros para clave y valor. Si corro los tests, ahora me salen errores relacionados con las claves, lo que significa que el epoch timestamp coincide y está funcionando. Ahora necesito saber dónde comienza y termina la clave y qué tipo tiene para poder desempaquetarla correctamente. `key_size` está en `header_data[1]`, y `key_type` está en `header_data[3]`, pero `key_type` es el entero asignado al tipo, no el tipo real. Pero pensándolo bien, no tengo un mapa donde las claves sean enteros y se mapeen a símbolos.
+
+### Pausa para arreglar cómo se manejan los tipos
+
+Dado esto, creo que primero necesito verificar eso antes de continuar, pero comentaré los tests de `deserialize` para asegurarme de que mis cambios no rompan nada. Veo que tendría que intercambiar estos:
+
+```rb
+DATA_TYPE_INTEGER = {
+  Integer: 1,
+  Float:  2,
+  String: 3
+}.freeze
+
+DATA_TYPE_SYMBOL = {
+  DATA_TYPE_INTEGER[:Integer] => :Integer,
+  DATA_TYPE_INTEGER[:Float] => :Float,
+  DATA_TYPE_INTEGER[:String] => :String
+}.freeze
+```
+
+Pero si hago eso, entonces también necesito cambiar `DATA_TYPE_FORMAT`:
+
+```rb
+DATA_TYPE_FORMAT = {
+  DATA_TYPE_INTEGER[:Integer] => "q<",
+  DATA_TYPE_INTEGER[:Float] => "E"
+}.freeze
+```
+
+Pero ahora el problema está aquí:
+
+```rb
+def self.pack(data:, type:)
+  case type
+  when DATA_TYPE_SYMBOL[:Integer], DATA_TYPE_SYMBOL[:Float]
+    return [data].pack(DATA_TYPE_FORMAT[type])
+  when DATA_TYPE_SYMBOL[:String]
+    return data.encode(Encoding::UTF_8)
+  else
+    raise StandardError, "Invalid type"
+  end
+end
+
+def self.unpack(data:, type:)
+  case type
+  when DATA_TYPE_SYMBOL[:Integer], DATA_TYPE_SYMBOL[:Float]
+    return data.unpack1(DATA_TYPE_FORMAT[type])
+  when DATA_TYPE_SYMBOL[:String]
+    return data
+  else
+    raise StandardError, "Invalid type"
+  end
+end
+```
+
+Porque ahora los índices son números, no símbolos, así que tendría que obtener el entero usando el símbolo y luego usar el entero para obtener el símbolo. Hmm... parece complicado. Creo que el enfoque pragmático aquí sería usar símbolos fijos, porque este "sobre mapeo" en realidad introduce más complejidad. En el caso de `DATA_TYPE_FORMAT`, esto es inevitable, así que primero crearé una función `format`:
+
+```rb
+def self.format(type)
+  return DATA_TYPE_FORMAT[DATA_TYPE_INTEGER[type]]
+end
+```
+
+Y usarla:
+
+```rb
+def self.pack(data:, type:)
+  case type
+  when DATA_TYPE_SYMBOL[:Integer], DATA_TYPE_SYMBOL[:Float]
+    return [data].pack(format(type))
+  when DATA_TYPE_SYMBOL[:String]
+    return data.encode(Encoding::UTF_8)
+  else
+    raise StandardError, "Invalid type"
+  end
+end
+
+def self.unpack(data:, type:)
+  case type
+  when DATA_TYPE_SYMBOL[:Integer], DATA_TYPE_SYMBOL[:Float]
+    return data.unpack1(format(type))
+  when DATA_TYPE_SYMBOL[:String]
+    return data
+  else
+    raise StandardError, "Invalid type"
+  end
+end
+```
+
+Y ahora arreglar los casos:
+
+```rb
+def self.pack(data:, type:)
+  case type
+  when :Integer, :Float
+    return [data].pack(format(type))
+  when :String
+    return data.encode(Encoding::UTF_8)
+  else
+    raise StandardError, "Invalid type"
+  end
+end
+
+def self.unpack(data:, type:)
+  case type
+  when :Integer, :Float
+    return data.unpack1(format(type))
+  when :String
+    return data
+  else
+    raise StandardError, "Invalid type"
+  end
+end
+```
+
+Los tests ahora pasarán.
+
+### Hacer que los tests para `deserialize` pasen (ahora de verdad)
+
+Voy a descomentar los tests de `deserialize` ahora que estamos seguros nuevamente. Almacenaré explícitamente cada parte: `epoch`, `key_size`, `value_size`, `key_type` y `value_type` para mayor claridad:
+
+```rb
+def self.deserialize(data)
+  epoch, key_size, value_s9ze, key_type, value_type = data[CRC32_SIZE..CRC32_SIZE + HEADER_SIZE - 1].unpack(HEADER_FORMAT)
+
+  return [epoch, 0, 0]
+end
+```
+
+Los tests aún fallan con la clave, así que está bien. Ahora, obtengamos clave y valor usando `unpack` y sus tipos usando `DATA_TYPE_SYMBOL` para obtener los símbolos de los enteros desempacados:
+
+```rb
+def self.deserialize(data)
+  epoch, key_size, _, key_type, value_type = data[CRC32_SIZE..CRC32_SIZE + HEADER_SIZE - 1].unpack(HEADER_FORMAT)
+
+  key = unpack(data: data[CRC32_SIZE + HEADER_SIZE..CRC32_SIZE + HEADER_SIZE + key_size - 1], type: key_type)
+  value = unpack(data: data[CRC32_SIZE + HEADER_SIZE + key_size..], type: value_type)
+
+  return [epoch, key, value]
+end
+```
+
+`value_size` no es realmente necesario porque el valor termina donde termina `data`, de ahí el guion bajo (_). Esto debería funcionar, excepto que no lo hace para los casos de prueba actuales porque involucran caracteres especiales.
+
+![Deserialize tests failing for special characters](/static/images/building-a-key-value-database-in-ruby-using-tdd/part-05/02.png "02 - Deserialize tests failing for special characters")
+
+Dado que no veo que el test sin caracteres especiales falle, significa que la lógica está bien, excepto por los caracteres especiales. Así que averigüemos por qué fallan. Centrándome en `"café"`, el test me dice que en lugar de `"café"` obtuvo `"café\xAE"`. Eso significa que estoy obteniendo 1 byte extra, `"\xAE"`. ¿Por qué? Veamos. `"é"` se representa con 2 bytes. Mi lógica para deserializar se basa en los índices de `data`. `"café"` tiene 4 caracteres, pero 5 bytes, así que debería funcionar, ¿verdad? Porque estoy manejando correctamente los rangos de los índices para interpretar cada parte de los datos en bruto. Pero... las cadenas se asumen que están codificadas en UTF-8 en Ruby, lo que significa que `"é"` tendrá 2 bytes en memoria, pero Ruby lo leerá como un todo, lo cual es algo que expliqué arriba. Eso significa que si estoy buscando 5 bytes, Ruby interpretará `"é"` como un todo, así que tomará los 2 bytes y dirá "Esto es solo 1 carácter" por lo que cuando llegue al 5to byte, obtendré `"\xAE"`, no la última parte de `"é"`. ¿Cómo solucionarlo entonces? No interpretando los caracteres al acceder al "fragmento" que podría contener caracteres especiales, que aquí es solo `key` o `value`. Eso significa forzar que `data`, la cadena binaria, no esté codificada en UTF-8, sino en ASCII-8-BIT.
+
+```rb
+def self.deserialize(data)
+  raw_data = data.dup.force_encoding(Encoding::ASCII_8BIT)
+
+  epoch, key_size, _, key_type, value_type = raw_data[CRC32_SIZE..CRC32_SIZE + HEADER_SIZE - 1].unpack(HEADER_FORMAT)
+
+  key = unpack(data: raw_data[CRC32_SIZE + HEADER_SIZE..CRC32_SIZE + HEADER_SIZE + key_size - 1].force_encoding(Encoding::UTF_8), type: key_type)
+  value = unpack(data: raw_data[CRC32_SIZE + HEADER_SIZE + key_size..].force_encoding(Encoding::UTF_8), type: value_type)
+
+  return [epoch, key, value]
+end
+```
+
+`dup` (duplicar) toma una copia superficial de `data` porque, además de ser una buena práctica no mutar valores originales para evitar modificar referencias inesperadas, `data` es inmutable debido a ese pequeño comentario en la parte superior del archivo: `# frozen_string_literal: true`. Al "jugar" con los índices sobre una cadena donde los caracteres no están interpretados, es seguro confiar en las posiciones de los bytes, pero para no perder la interpretación de los caracteres especiales, después de obtener el "fragmento" de esa cadena no interpretada, se codifica de nuevo en UTF-8 antes de intentar desempaquetarlo. Ahora los tests pasarán, así que este fue el enfoque correcto. Algunos pueden argumentar que usar caracteres especiales para las claves no debería ser compatible por simplicidad, y al menos yo nunca usaría, si puedo controlarlo, caracteres especiales para las claves, pero esta es una situación inevitable con `value`, donde estos caracteres pueden existir y no hay nada de malo en ello, así que si la implementación necesita funcionar para caracteres especiales en `value`, entonces hacer lo mismo para `key` es solo una elección natural.
+
+### Refactorizar `deserialize` para separar la deserialización del header
+
+Antes de continuar, haré un pequeño refactor como hice con `serialize`. Si tengo `serialize` y `serialize_header`, es natural pensar que debería tener `deserialize` y `deserialize_header` también, así que moveré la lógica del header a `deserialize_header`, y tomará los datos empaquetados del header de `raw_data` para evitar calcularlo dos veces (una para el header y otra para `key` y `value`):
+
+```rb
+def self.deserialize_header(header_data)
+  header = header_data.unpack(HEADER_FORMAT)
+
+  return [header[0], header[1], header[2], DATA_TYPE_SYMBOL[header[3]], DATA_TYPE_SYMBOL[header[4]]]
+end
+```
+
+Nota que ya devuelvo los tipos como símbolos, porque así es como quiero usarlos, no como enteros. Y ahora a usarlo:
+
+```rb
+def self.deserialize(data)
+  raw_data = data.dup.force_encoding(Encoding::ASCII_8BIT)
+
+  epoch, key_size, _, key_type, value_type = deserialize_header(raw_data[CRC32_SIZE..CRC32_SIZE + HEADER_SIZE - 1])
+
+  key = unpack(data: raw_data[CRC32_SIZE + HEADER_SIZE..CRC32_SIZE + HEADER_SIZE + key_size - 1].force_encoding(Encoding::UTF_8), type: key_type)
+  value = unpack(data: raw_data[CRC32_SIZE + HEADER_SIZE + key_size..].force_encoding(Encoding::UTF_8), type: value_type)
+
+  return [epoch, key, value]
+end
+```
+
+Y los tests siguen pasando, así que funciona. Ahora, introduciré variables auxiliares para obtener el "fragmento" para `key` y `value` de `raw_data` para evitar líneas tan largas.
+
+```rb
+def self.deserialize(data)
+  raw_data = data.dup.force_encoding(Encoding::ASCII_8BIT)
+
+  epoch, key_size, _, key_type, value_type = deserialize_header(raw_data)
+
+  key_bytes = raw_data[CRC32_SIZE + HEADER_SIZE..CRC32_SIZE + HEADER_SIZE + key_size - 1]
+  value_bytes = raw_data[CRC32_SIZE + HEADER_SIZE + key_size..]
+
+  key = unpack(data: key_bytes.force_encoding(Encoding::UTF_8), type: key_type)
+  value = unpack(data: value_bytes.force_encoding(Encoding::UTF_8), type: value_type)
+
+  return [epoch, key, value]
+end
+```
+
+### Validar checksum
+
+Eso se ve mejor. `deserialize` está... no, espera. Recuerdo que la verificación del checksum está pendiente. ¿Cómo implementar eso? Bueno, esencialmente necesito verificar que el checksum que viene de `data` sea el mismo que se generaría a partir de todo el conjunto, `crc32(header + data)` (donde `header` y `data` ya están empaquetados), que es lo que hice en `serialize`. Podría simplemente poner la lógica dentro de `deserialize`, pero sé con certeza que esto necesita ser una función de verificación dedicada. Un buen nombre sería `is_crc32_valid`. ¿Qué necesita? Solo el checksum, pero no la cadena binaria del checksum empaquetado, el entero checksum, porque eso es lo que `crc32` devuelve. Así que sé que debería verse así:
+
+```rb
+def self.is_crc32_valid(checksum, data_bytes)
+  return checksum == crc32(data_bytes)
+end
+```
+
+Algunos podrían decir que me estoy adelantando porque estoy pensando en la implementación antes del test, pero seamos honestos, solo pensé en la implementación obvia antes de crear el test, así que no es como que rompí todo el flujo de trabajo. Podría crear un test para esto, pero eso me obligaría a exponer el formato para desempaquetar el checksum, y eso daría detalles sobre la implementación interna, así que supongo que eso sería un test acoplado a la implementación. Así que en lugar de eso crearé un test para lo que `deserialize` debería devolver cuando el checksum no sea válido:
+
+```rb
+it "returns expected values for invalid CRC-32-compliant checksum" do # Dentro del bloque describe #deserialize
+  epoch, key, value = KVDatabase::Serializer.deserialize("\x2E+`K\xD20!h\x05\x00\x00\x00\b\x00\x00\x00\x03\x02caf\xC3\xA9\xAEG\xE1z\x14\xAE\xF3?")
+
+  expect(epoch).to eq(0)
+  expect(key).to eq('')
+  expect(value).to eq('')
+end
+```
+
+Esto fallará, por supuesto. Creo que esto podría funcionar:
+
+```rb
+def self.deserialize(data)
+  raw_data = data.dup.force_encoding(Encoding::ASCII_8BIT)
+  
+  if !is_crc32_valid(raw_data[..CRC32_SIZE - 1], raw_data[CRC32_SIZE..])
+    return 0, '', ''
+  end
+
+  epoch, key_size, _, key_type, value_type = deserialize_header(raw_data)
+
+  key_bytes = raw_data[CRC32_SIZE + HEADER_SIZE..CRC32_SIZE + HEADER_SIZE + key_size - 1]
+  value_bytes = raw_data[CRC32_SIZE + HEADER_SIZE + key_size..]
+
+  key = unpack(data: key_bytes.force_encoding(Encoding::UTF_8), type: key_type)
+  value = unpack(data: value_bytes.force_encoding(Encoding::UTF_8), type: value_type)
+
+  return [epoch, key, value]
+end
+```
+
+Casi, porque `raw_data[..CRC32_SIZE - 1]` es la cadena binaria, no el entero desempaquetado, así que necesito desempaquetarlo primero. Sé que obtendré solo 1 entero, así que puedo usar `unpack1` de manera segura, ¿y cuál es el formato? Bueno, recordemos que lo tengo en `CRC32_FORMAT` porque lo necesito para `serialize`:
+
+```rb
+def self.deserialize(data)
+  raw_data = data.dup.force_encoding(Encoding::ASCII_8BIT)
+
+  unpacked_crc32 = raw_data[..CRC32_SIZE - 1].unpack1(CRC32_FORMAT)
+
+  if !is_crc32_valid(unpacked_crc32, raw_data[CRC32_SIZE..])
+    return 0, '', ''
+  end
+
+  epoch, key_size, _, key_type, value_type = deserialize_header(raw_data)
+
+  key_bytes = raw_data[CRC32_SIZE + HEADER_SIZE..CRC32_SIZE + HEADER_SIZE + key_size - 1]
+  value_bytes = raw_data[CRC32_SIZE + HEADER_SIZE + key_size..]
+
+  key = unpack(data: key_bytes.force_encoding(Encoding::UTF_8), type: key_type)
+  value = unpack(data: value_bytes.force_encoding(Encoding::UTF_8), type: value_type)
+
+  return [epoch, key, value]
+end
+```
+
+Y ahora el test pasa.
+
+### Refactorizar `deserialize` para separar la deserialización del checksum
+
+Ahora quiero refactorizar porque parece que desempaquetar el checksum no debería ser responsabilidad de esta función. Así que introduciré una nueva función, `deserialize_crc32`. ¿Por qué no `unpack_crc32`? Porque quiero implicar que este es el proceso de deserialización para el checksum, de la misma manera que lo es para `deserialize_header`.
+
+```rb
+def self.deserialize_crc32(checksum_bytes)
+  return checksum_bytes.unpack1(CRC32_FORMAT)
+end
+```
+
+Solo le paso el "fragmento" con el checksum porque no necesito pasar todos los datos, solo necesito el checksum. Y ahora a usarlo:
+
+```rb
+def self.deserialize(data)
+  raw_data = data.dup.force_encoding(Encoding::ASCII_8BIT)
+
+  if !is_crc32_valid(deserialize_crc32(raw_data[..CRC32_SIZE - 1]), raw_data[CRC32_SIZE..])
+    return 0, '', ''
+  end
+
+  epoch, key_size, _, key_type, value_type = deserialize_header(raw_data)
+
+  key_bytes = raw_data[CRC32_SIZE + HEADER_SIZE..CRC32_SIZE + HEADER_SIZE + key_size - 1]
+  value_bytes = raw_data[CRC32_SIZE + HEADER_SIZE + key_size..]
+
+  key = unpack(data: key_bytes.force_encoding(Encoding::UTF_8), type: key_type)
+  value = unpack(data: value_bytes.force_encoding(Encoding::UTF_8), type: value_type)
+
+  return [epoch, key, value]
+end
+```
+
+Los tests siguen pasando, así que funciona, y ahora otro pequeño refactor porque parece que la forma Ruby de hacer esto es:
+
+```rb
+def self.deserialize(data)
+  raw_data = data.dup.force_encoding(Encoding::ASCII_8BIT)
+
+  return 0, '', '' unless is_crc32_valid(deserialize_crc32(raw_data[..CRC32_SIZE - 1]), raw_data[CRC32_SIZE..])
+
+  epoch, key_size, _, key_type, value_type = deserialize_header(raw_data)
+
+  key_bytes = raw_data[CRC32_SIZE + HEADER_SIZE..CRC32_SIZE + HEADER_SIZE + key_size - 1]
+  value_bytes = raw_data[CRC32_SIZE + HEADER_SIZE + key_size..]
+
+  key = unpack(data: key_bytes.force_encoding(Encoding::UTF_8), type: key_type)
+  value = unpack(data: value_bytes.force_encoding(Encoding::UTF_8), type: value_type)
+
+  return [epoch, key, value]
+end
+```
+
+Genial, los tests siguen en verde.
+
+### Refactorizar los tests para `deserialize`
+
+Ahora quiero otro refactor, pero para los tests, para agruparlos de una mejor manera. Ahora mismo, el bloque `#deserialize` se ve así:
+
+```rb
+describe "#deserializes" do
+  let(:serialized_data_1) { OpenStruct.new(
+    raw: "\x1E+`K\xD20!h\x05\x00\x00\x00\b\x00\x00\x00\x03\x02caf\xC3\xA9\xAEG\xE1z\x14\xAE\xF3?",
+    epoch: 1_747_005_650,
+    key: "café",
+    value: 1.23
+  )}
+  let(:serialized_data_2) { OpenStruct.new(
+    raw: "\xC8M\xD9M\xD30!h\x06\x00\x00\x00\x11\x00\x00\x00\x03\x03\xC3\xA9liteRandom expression",
+    epoch: 1_747_005_651,
+    key: "élite",
+    value: "Random expression"
+  )}
+  let(:serialized_data_3) { OpenStruct.new(
+    raw: "\x8D\xBB\xA9\x93\xD40!h\b\x00\x00\x00\b\x00\x00\x00\x01\x01\x18\x00\x00\x00\x00\x00\x00\x00\n\x00\x00\x00\x00\x00\x00\x00",
+    epoch: 1_747_005_652,
+    key: 24,
+    value: 10
+  )}
+
+  it "deserializes" do
+    epoch, key, value = KVDatabase::Serializer.deserialize(serialized_data_1.raw)
+
+    expect(epoch).to eq(serialized_data_1.epoch)
+    expect(key).to eq(serialized_data_1.key)
+    expect(value).to eq(serialized_data_1.value)
+  end
+
+  it "deserializes" do
+    epoch, key, value = KVDatabase::Serializer.deserialize(serialized_data_2.raw)
+
+    expect(epoch).to eq(serialized_data_2.epoch)
+    expect(key).to eq(serialized_data_2.key)
+    expect(value).to eq(serialized_data_2.value)
+  end
+
+  it "deserializes" do
+    epoch, key, value = KVDatabase::Serializer.deserialize(serialized_data_3.raw)
+
+    expect(epoch).to eq(serialized_data_3.epoch)
+    expect(key).to eq(serialized_data_3.key)
+    expect(value).to eq(serialized_data_3.value)
+  end
+
+  it "returns expected values for invalid CRC-32-compliant checksum" do
+    epoch, key, value = KVDatabase::Serializer.deserialize("\x2E+`K\xD20!h\x05\x00\x00\x00\b\x00\x00\x00\x03\x02caf\xC3\xA9\xAEG\xE1z\x14\xAE\xF3?")
+
+    expect(epoch).to eq(0)
+    expect(key).to eq('')
+    expect(value).to eq('')
+  end
+  end
+```
+
+Pero veo que puedo agrupar los bloques `it` con `context`, así que crearé un contexto para cuando los datos sean válidos, y para cuando el checksum no sea válido.
+
+```rb
+describe "#deserializes" do
+  context "when serialized data is valid" do
+    let(:serialized_data_1) { OpenStruct.new(
+      raw: "\x1E+`K\xD20!h\x05\x00\x00\x00\b\x00\x00\x00\x03\x02caf\xC3\xA9\xAEG\xE1z\x14\xAE\xF3?",
+      epoch: 1_747_005_650,
+      key: "café",
+      value: 1.23
+    )}
+    let(:serialized_data_2) { OpenStruct.new(
+      raw: "\xC8M\xD9M\xD30!h\x06\x00\x00\x00\x11\x00\x00\x00\x03\x03\xC3\xA9liteRandom expression",
+      epoch: 1_747_005_651,
+      key: "élite",
+      value: "Random expression"
+    )}
+    let(:serialized_data_3) { OpenStruct.new(
+      raw: "\x8D\xBB\xA9\x93\xD40!h\b\x00\x00\x00\b\x00\x00\x00\x01\x01\x18\x00\x00\x00\x00\x00\x00\x00\n\x00\x00\x00\x00\x00\x00\x00",
+      epoch: 1_747_005_652,
+      key: 24,
+      value: 10
+    )}
+
+    it "deserializes" do
+      epoch, key, value = KVDatabase::Serializer.deserialize(serialized_data_1.raw)
+
+      expect(epoch).to eq(serialized_data_1.epoch)
+      expect(key).to eq(serialized_data_1.key)
+      expect(value).to eq(serialized_data_1.value)
+    end
+
+    it "deserializes" do
+      epoch, key, value = KVDatabase::Serializer.deserialize(serialized_data_2.raw)
+
+      expect(epoch).to eq(serialized_data_2.epoch)
+      expect(key).to eq(serialized_data_2.key)
+      expect(value).to eq(serialized_data_2.value)
+    end
+
+    it "deserializes" do
+      epoch, key, value = KVDatabase::Serializer.deserialize(serialized_data_3.raw)
+
+      expect(epoch).to eq(serialized_data_3.epoch)
+      expect(key).to eq(serialized_data_3.key)
+      expect(value).to eq(serialized_data_3.value)
+    end
+  end
+
+  context "when checksum is invalid" do
+    it "returns expected values for invalid CRC-32-compliant checksum" do
+      epoch, key, value = KVDatabase::Serializer.deserialize("\x2E+`K\xD20!h\x05\x00\x00\x00\b\x00\x00\x00\x03\x02caf\xC3\xA9\xAEG\xE1z\x14\xAE\xF3?")
+
+      expect(epoch).to eq(0)
+      expect(key).to eq('')
+      expect(value).to eq('')
+    end
+  end
+end
+```
+
+De esa manera, además de tener una mejor separación, las variables `serialized_data_n` son locales al contexto de datos válidos, por lo que no se crean para los otros tests.
+
+### Manejar la deserialización para datos inválidos
+
+Sigue funcionando, pero veo que falta un caso. ¿Qué pasa si la cadena binaria no es válida?
+
+```rb
+context "when binary string is empty" do
+  it "returns expected values for empty binary string" do
+    epoch, key, value = KVDatabase::Serializer.deserialize("")
+
+    expect(epoch).to eq(0)
+    expect(key).to eq('')
+    expect(value).to eq('')
+  end
+end
+```
+
+El test pasa, así que la función lo maneja bien porque cuando no hay checksum, compara `nil` con `0` (el resultado de `crc32(data_bytes)`), por lo que el checksum no es válido en ese caso. Si introduzco un test más:
+
+```rb
+context "when binary string is not a string" do
+  it "returns expected values for non-string input" do
+    epoch, key, value = KVDatabase::Serializer.deserialize(nil)
+
+    expect(epoch).to eq(0)
+    expect(key).to eq('')
+    expect(value).to eq('')
+  end
+end
+```
+
+Fallará porque espera una cadena en `raw_data`. Así que puedo simplemente añadir una guarda para un `early return`:
+
+```rb
+def self.deserialize(data)
+  return 0, '', '' unless data.is_a?(String)
+
+  raw_data = data.dup.force_encoding(Encoding::ASCII_8BIT)
+
+  return 0, '', '' unless is_crc32_valid(deserialize_crc32(raw_data[..CRC32_SIZE - 1]), raw_data[CRC32_SIZE..])
+
+  epoch, key_size, _, key_type, value_type = deserialize_header(raw_data)
+
+  key_bytes = raw_data[CRC32_SIZE + HEADER_SIZE..CRC32_SIZE + HEADER_SIZE + key_size - 1]
+  value_bytes = raw_data[CRC32_SIZE + HEADER_SIZE + key_size..]
+
+  key = unpack(data: key_bytes.force_encoding(Encoding::UTF_8), type: key_type)
+  value = unpack(data: value_bytes.force_encoding(Encoding::UTF_8), type: value_type)
+
+  return [epoch, key, value]
+end
+```
+
+Y eso hará que el test pase. Pero no me gusta repetir el `return`, así que puedo simplemente usar `data` en lugar de `raw_data` para la validación del checksum porque en ese punto, no me importa la codificación (porque el checksum no contendrá caracteres especiales):
+
+```rb
+def self.deserialize(data)
+  return 0, '', '' unless data.is_a?(String) && is_crc32_valid(deserialize_crc32(data[..CRC32_SIZE - 1]), data[CRC32_SIZE..])
+
+  raw_data = data.dup.force_encoding(Encoding::ASCII_8BIT)
+
+  epoch, key_size, _, key_type, value_type = deserialize_header(raw_data)
+
+  key_bytes = raw_data[CRC32_SIZE + HEADER_SIZE..CRC32_SIZE + HEADER_SIZE + key_size - 1]
+  value_bytes = raw_data[CRC32_SIZE + HEADER_SIZE + key_size..]
+
+  key = unpack(data: key_bytes.force_encoding(Encoding::UTF_8), type: key_type)
+  value = unpack(data: value_bytes.force_encoding(Encoding::UTF_8), type: value_type)
+
+  return [epoch, key, value]
+end
+```
+
+Todas los tests siguen pasando. Supongo que esto podría mejorarse aún más, pero me detendré aquí. Con esto, `Serializer` está listo. En la próxima parte comenzaré a trabajar en `DiskStore`, donde sucederá la magia de manejar archivos y registros.

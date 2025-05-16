@@ -1,0 +1,503 @@
+---
+title: "Construyendo una base de datos clave-valor en Ruby usando TDD: Parte 03"
+series:
+  order: 3
+  title: "Construyendo una base de datos clave-valor en Ruby usando TDD"
+date: '2025/05/11'
+lastmod: '2025/05/11'
+language: es
+tags: ['testing', 'tdd', 'ruby', 'bases de datos']
+authors: ['default']
+draft: false
+featured: false
+summary: En esta tercera parte, seguiremos trabajendo en los tests y las implementaciones para serializar y deserializar datos.
+---
+
+<TOCInline toc={props.toc} locale={props.locale} asDisclosure />
+
+## Serializer
+
+### Prevenir la alteración de nombres
+
+La última cosa que hice en la primera parte fue desarrollar `serialize` y `deserialize` e implementar algunas constantes locales para mapear tipos de datos con enteros, símbolos o formatos. Ahora, he tenido malas experiencias con constantes que son objetos después de compilar una aplicación en JS (sí, estos mapas son objetos para mí, mapean cosas, pero son objetos de toda la vida con claves y valores). Crear un compilado implica minificar el código, y resulta que los nombres de esas constantes pueden cambiar debido a la [alteración de nombres](https://en.wikipedia.org/wiki/Name_mangling). Esta alteración significa que estas constantes perderían sus nombres originales y usarían algún nombre ilegible para los humanos, pero las referencias a ellos serían preservadas usando el nombre que les di. Esto, por supuesto, hace que el código ya no funcione porque estoy haciendo referencia a algo que no existe. Para mí, en un servidor de desarrollo, funcionaría, pero el código minificado para producción no funcionaría.
+
+Por esto es que me gusta congelar los objetos que son constantes, para que sus nombres no puedan ser alterados y no puedan ser mutados, lo que significa que no puedo agregar, editar o eliminar valores. Esto me da la confianza de que no obtendré ningún comportamiento inesperado. En Ruby, esto es tan sencillo como llamar al método `freeze` en el objeto. Necesito congelar todos estos objetos constantes, así que simplemente lo aplicaré a todos ellos:
+
+```rb
+DATA_TYPE_SYMBOL = {
+  Integer: :Integer,
+  Float: :Float,
+  String: :String
+}.freeze
+
+DATA_TYPE_INTEGER = {
+  DATA_TYPE_SYMBOL[:Integer] => 1,
+  DATA_TYPE_SYMBOL[:Float] =>  2,
+  DATA_TYPE_SYMBOL[:String] => 3
+}.freeze
+
+DATA_TYPE_FORMAT = {
+  DATA_TYPE_SYMBOL[:Integer] => "q<",
+  DATA_TYPE_SYMBOL[:Float] => "E"
+}.freeze
+```
+
+Estos tests todavía pasan, por supuesto. Recordemos que hice todo esto para que pudiera guardar el tipo de la clave y el valor como un entero.
+
+### Crear un checksum que cumpla con CRC-32
+
+Regresando a lo que necesito guardar en un registro:
+
+- Un checksum que cumpla con CRC-32
+- Un epoch timestamp
+- El tamaño de la clave
+- El tamaño del valor
+- El tipo de la clave
+- El tipo del valor
+- Clave
+- Valor
+
+Ahora tengo todo lo que necesito para guardar lo que sea, excepto el checksum que cumpla con CRC-32. Me podría enfocar en lo que ya sé que puedo serializar y deserializar, pero si los datos necesitan estar ordenados siguiendo el orden de arriba (como un arreglo de bytes), entonces pienso que es mejor enfocarme en crear un test para el checksum CRC-32, encontrar una manera de hacerlo pasar y tener esta implementación faltante. Entonces crearé un test para eso:
+
+```rb
+it "creates a CRC-32-compliant checksum" do
+  expected = 123
+  expect(KVDatabase::Serializer.crc32("Hello, world!")).to eq(expected)
+end
+```
+
+Este test fallará porque `crc32` no está implementado en el módulo `Serializer`. Para hacer que este test pase, falsearé la implementación y solo regresaré lo que se espera.
+
+```rb
+def self.crc32(value)
+  return 123
+end
+```
+
+Sin parámetro de palabra clave porque esta función solo recibirá uno. Después de esto, el test pasará. Para hacer la implementación real, como pasó con el empaquetamiento y desempaquetamiento de datos binarios, Ruby provee una librería llamada `Zlib` que incluye un método `crc32`. De nuvo, estas funciones pueden parecer simples envolturas, pero me ayudan a ver qué camino debería estar siguiendo.
+
+```rb
+require "zlib" # No olvides importar
+
+def self.crc32(value)
+  return Zlib.crc32(value)
+end
+```
+
+Hacer esto romperá el test, porque el valor esperado no es realmente el resultado de aplicar el algoritmo para crear un checksum (a menos que yo tuviera mucha suerte). Hay una herramienta para [generar checksums que cumplan con CRC-32](https://crccalc.com/?crc=Hello,%20world!&method=CRC-32&datatype=ascii&outtype=hex), así que puedo encontrar el valor esperado para una cadena de texto sencilla ahí. Ruby usa el algoritmo `CRC-32/ISO-HDLC`, así que ese es el valor de `result` que escogeré.
+
+```rb
+it "creates a CRC-32-compliant checksum" do
+  expected = 0xEBE6C6E6
+  expect(KVDatabase::Serializer.crc32("Hello, world!")).to eq(expected)
+end
+```
+
+Ahora el test pasa. El valor esperado es un número expresado en hexadecimal, porque así que es como realmente se genera, pero si lo convirtiera a decimal, funcionaría también:
+
+```rb
+it "creates a CRC-32-compliant checksum" do
+  expected = 3957769958
+  expect(KVDatabase::Serializer.crc32("Hello, world!")).to eq(expected)
+end
+```
+
+Sin embargo, me gusta dejarlo como hexadecimal porque se ve menos sucio. Una vez que el test pase, puedo empezar a pensar en cuál es el objetivo real de crear este checksum. ¿Cuál es su propósito? Mantener la integridad de los datos al comparar si el checksum del registro es el checksum esperado para esos datos. ¿Pero cómo puedo lograr crear un checksum que represente el registro por sí mismo? Pienso que puedo simplemente usar los datos por sí mismos para generar el checksum. Pero si tengo que usar los datos por sí mismos, entonces tendría primero que saber cómo esos datos se van a ver. Entonces debí empezar con los datos en lugar del checksum, pero solo llegué a esta conclusión porque el test me permitió entender a dónde estaba yendo.
+
+### Cambiar de ruta
+
+Me concentraré en crear los datos del registro y luego volveré al checksum. Recordando cómo los datos deberían ser guardados en un registro siguiendo el modelo Bitcask (otra mención al [artículo de Dinesh Gowda](https://dineshgowda.com/posts/build-your-own-persistent-kv-store/)):
+
+![Bitcask model for a database](/static/images/building-a-key-value-database-in-ruby-using-tdd/shared/01.svg "01 - Bitcask model for a database")
+
+Modifiqué la imagen original porque por un lado, mostraba 4 bytes para los tipos de clave y valor, pero el total del header era 16 en lugar de 20, y por el otro lado, si los tipos serán enteros pequeños (con lo que sé ahora, es solo de 1 a 3), no necesito 4 bytes, solo necesito 1 byte. Entonces necesito un header de 14 bytes, 4 bytes para el epoch timestamp, 4 bytes para el tamaño de la clave, 4 bytes para el tamaño del valor, 1 byte para el tipo de la clave y 1 byte para el tipo del valor. Ahora vamos paso a paso.
+
+### Pensar en el epoch timestamp
+
+Vamos a crear un test para el epoch timestamp:
+
+```rb
+it "creates an epoch timestamp" do
+  expected = 1746984608
+  expect(KVDatabase::Serializer.epoch_timestamp).to eq(expected)
+end
+```
+
+Fallará porque `epoch_timestamp` no existe. Aquí me puedo saltar la implementación falsa porque sé la implementación obvia, que es simplemente usar `Time.now.to_i`. `Time.now` generará una cadena de texto con la fecha y hora, pero `to_i` lo convertirá a los milisegundos que esperamos.
+
+```rb
+def self.epoch_timestamp
+  return Time.now.to_i
+end
+```
+
+Y ahora el test... falla. ¿Por qué? Porque el tiempo ha cambiado. `Time.now` es dinámico, y `expected` es, por supuesto, no dinámico. Este test no será útil entonces, porque tendría que fijar el timestamp y realmente no me estaría diciendo nada. Entonces no voy a crear un test ahora, pero cuando tenga un mejor entendimiento del problema, veré qué necesita testearse en términos de tiempo. Lo bueno es que este experimento me permitió entender que necesitaba usar `Time.now.to_i` para crear el timestamp.
+
+### Cambiar de ruta una vez más
+
+Siento que estoy estancándome, ¿qué es lo siguiente que puedo hacer? ¿Será que necesito comenzar a pensar en implementaciones en lugar de tests? No, eso iría en contra del propósito de TDD. Si quiero ir a la siguiente parte, el tamaño de la clave, ¿qué necesitaría? ¿Una función para generar el tamaño de la clave? ¿Qué es el tamaño de la clave? Sé que el tamaño de la clave estará medido en bytes, ¿pero cuál será la clave? Si la clave fuera `"café"`, ¿el tamaño sería 4 porque estos son 4 caracteres? No, porque "é" es más de 1 byte, así que el número de bytes sería mayor que el número de caracteres. Por lo tanto, el tamaño es la longitud del arreglo de bytes que representan la clave. Lo mismo para el tamaño del valor. Entonces creo que puedo empezar por crear un test que genere el tamaño para una clave dada.
+
+### Entender el tamaño de la clave
+
+```rb
+it "generates the size of a key" do
+  expected = 5
+  expect(KVDatabase::Serializer.key_size("café")).to eq(expected)
+end
+```
+
+Esto fallará porque `key_size` no existe. El valor esperado viene del test anterior para serializar cadenas de texto (5 "posiciones" en la cadena de texto, así que 5 bytes para `"café"`). Podría hacer una implementación falsa, pero una cosa que sé es que si codifico `"café"` en UTF-8, y obtengo un arreglo de bytes, puedo acceder a la propiedad `.bytes.length`. Pero eso solo funcionaría para cadenas de texto, pero ahora ya tengo un método `serialize` que maneja diferentes tipos. Pero necesita un tipo, así que necesitaría hacer esto:
+
+```rb
+def self.key_size(key:, type:)
+  return serialize(value: key, type: type).bytes.length
+end
+```
+
+Eso se ve sucio porque, ¿por qué `key_size` dependería de `serialize`? Si quiero crear un nuevo registro, el tamaño sería calculado a partir de los datos que quiero serializar, así que en todo caso, `serialize` llamaría a `key_size`, no al revés.
+
+### Renombrar `serialize` a `pack`
+
+Esto me hace ver un problema fundamental con `serialize`: este método debería ser responsable de convertir todo, no solo una parte. En este momento tiene un alcance específico, pero debería tener uno más amplio. Solo empaqueta datos en un arreglo de bytes, pero desde afuera, supondría que `serialize` es el que toma los datos del registro para almacenarlos y crea todo con el CRC, el header, la clave y el valor. No es que la implementación esté mal, es solo que el nombre no refleja lo que hace. Comentaré primero el test e implementación para `key_size`.
+
+Y ahora renombraré `serialize` a un nombre más adecuado, `pack`, porque eso es literalmente lo que hace.
+
+```rb
+def self.pack(value:, type:)
+  if type == :String
+    return value.encode(Encoding::UTF_8)
+  end
+
+  return [value].pack(DATA_TYPE_FORMAT[type])
+end
+```
+
+Esto romperá los tests, así que arreglémoslos:
+
+```rb
+it "packs integers" do
+  expected = "\x14\x00\x00\x00\x00\x00\x00\x00"
+  expect(KVDatabase::Serializer.pack(value: 20, type: :Integer)).to eq(expected)
+end
+
+it "packs floats" do
+  expected = "\x8f\xc2\xf5\x28\x5c\x8f\x2c\x40".b
+  expect(KVDatabase::Serializer.pack(value: 14.28, type: :Float)).to eq(expected)
+end
+
+it "packs strings" do
+  expected = "\x63\x61\x66\xc3\xa9"
+  expect(KVDatabase::Serializer.pack(value: "café", type: :String)).to eq(expected)
+end
+```
+
+### Renombrar `deserialize` a `unpack`
+
+Lo mismo aplica para `deserialize`: debería ser un método que tome los datos almacenados, identifique cada parte y devuelva el valor, pero en este momento solo desempaqueta algún valor dado su tipo.
+
+```rb
+def self.unpack(value:, type:)
+  if type == :String
+    return value
+  end
+
+  return value.unpack1(DATA_TYPE_FORMAT[type])
+end
+```
+
+Arreglemos los tests:
+
+```rb
+it "unpacks integers" do
+  expected = 20
+  expect(KVDatabase::Serializer.unpack(value: "\x14\x00\x00\x00\x00\x00\x00\x00", type: :Integer)).to eq(expected)
+end
+
+it "unpacks floats" do
+  expected = 14.28
+  expect(KVDatabase::Serializer.unpack(value: "\x8f\xc2\xf5\x28\x5c\x8f\x2c\x40", type: :Float)).to eq(expected)
+end
+
+it "unpacks strings" do
+  expected = "café"
+  expect(KVDatabase::Serializer.unpack(value: "\x63\x61\x66\xc3\xa9", type: :String)).to eq(expected)
+end
+```
+
+### Refactorizar para evitar confusiones de nombres entre clave y valor
+
+Ahora los nombres reflejan mejor sus propósitos y los tests pasan. Pero al pensar en `key` y `value`, y que `key` se pasaría como `value`, los nombres son un poco confusos, porque, por supuesto, `value` es solo un nombre general; podría ser la `key`, pero no quiero esa confusión, así que cambiaré el nombre de `value` a `data`. Primero `pack`:
+
+```rb
+def self.pack(data:, type:)
+  if type == :String
+    return data.encode(Encoding::UTF_8)
+  end
+
+  return [data].pack(DATA_TYPE_FORMAT[type])
+end
+```
+
+A arreglar los tests:
+
+```rb
+it "packs integers" do
+  expected = "\x14\x00\x00\x00\x00\x00\x00\x00"
+  expect(KVDatabase::Serializer.pack(data: 20, type: :Integer)).to eq(expected)
+end
+
+it "packs floats" do
+  expected = "\x8f\xc2\xf5\x28\x5c\x8f\x2c\x40".b
+  expect(KVDatabase::Serializer.pack(data: 14.28, type: :Float)).to eq(expected)
+end
+
+it "packs strings" do
+  expected = "\x63\x61\x66\xc3\xa9"
+  expect(KVDatabase::Serializer.pack(data: "café", type: :String)).to eq(expected)
+end
+```
+
+Ahora `unpack`:
+
+```rb
+def self.unpack(data:, type:)
+  if type == :String
+    return data
+  end
+
+  return data.unpack1(DATA_TYPE_FORMAT[type])
+end
+```
+
+A arreglar los tests:
+
+```rb
+it "unpacks integers" do
+  expected = 20
+  expect(KVDatabase::Serializer.unpack(data: "\x14\x00\x00\x00\x00\x00\x00\x00", type: :Integer)).to eq(expected)
+end
+
+it "unpacks floats" do
+  expected = 14.28
+  expect(KVDatabase::Serializer.unpack(data: "\x8f\xc2\xf5\x28\x5c\x8f\x2c\x40", type: :Float)).to eq(expected)
+end
+
+it "unpacks strings" do
+  expected = "café"
+  expect(KVDatabase::Serializer.unpack(data: "\x63\x61\x66\xc3\xa9", type: :String)).to eq(expected)
+end
+```
+
+Para `crc32`, no hay un parámetro de palabra clave, pero internamente se llama `value`, así que para reflejar mejor que lo que se utilizará para el checksum es el conjunto de datos, renombrémoslo también:
+
+```rb
+def self.crc32(data)
+  return Zlib.crc32(data)
+end
+```
+
+Por supuesto este test todavía pasa porque ningún comportamiento expuesto hacia el exterior fue modificado.
+
+### Manejar errores al tratar de empaquetar tipos inválidos
+
+Quiero hacer una pausa aquí porque después de realizar estos cambios, me di cuenta de que `pack` y `unpack` asumen que el tipo será válido, lo cual no es necesariamente cierto. Así que primero crearé un nuevo test para `pack` que verifique que se lanza un error cuando el tipo no es válido.
+
+```rb
+it "throws an error when packing data of an invalid type" do
+  expect{KVDatabase::Serializer.pack(data: :symbol, type: :Symbol)}.to raise_error(StandardError, "Invalid type")
+end
+```
+
+Aparentemente, tengo que usar `{}` en lugar de `()` porque de lo contrario el código no será "capturable".
+
+Para que el test pase, puedo hacer algo feo (pero no tanto):
+
+```rb
+def self.pack(data:, type:)
+  if type != :String && type != :Integer && type != :Float
+    raise StandardError, "Invalid type"
+  end
+
+  if type == :String
+    return data.encode(Encoding::UTF_8)
+  end
+
+  return [data].pack(DATA_TYPE_FORMAT[type])
+end
+```
+
+El test ahora pasará. Esto no es lo mejor, pero no está tan mal. Puedo usar un `case` (un `switch` en la sintaxis de Ruby), pero en lugar de codificar los símbolos para los tipos, puedo usar mi mapa `DATA_TYPE_SYMBOL`.
+
+```rb
+def self.pack(data:, type:)
+  case type
+  when DATA_TYPE_SYMBOL[:Integer], DATA_TYPE_SYMBOL[:Float]
+    return [data].pack(DATA_TYPE_FORMAT[type])
+  when DATA_TYPE_SYMBOL[:String]
+    return data.encode(Encoding::UTF_8)
+  else
+    raise StandardError, "Invalid type"
+  end
+end
+```
+
+De esa manera, mantengo mi única fuente de verdad y el código fácil de entender (creo). Sé que no necesito `return` explícito en Ruby, pero me siento incómodo no usándolo, para mí es más legible usarlo.
+
+Por supuesto, el test seguirá pasando.
+
+### Manejar errores al tratar de desempaquetar tipos inválidos
+
+Ahora creemos un test para `unpack`:
+
+```rb
+it "throws an error when unpacking data of an invalid type" do
+  expect{KVDatabase::Serializer.unpack(data: :symbol, type: :Symbol)}.to raise_error(StandardError, "Invalid type")
+end
+```
+
+Por supuesto fallará. Ahora hagamos una implementación similar para hacer que pase:
+
+```rb
+def self.unpack(data:, type:)
+  case type
+  when DATA_TYPE_SYMBOL[:Integer], DATA_TYPE_SYMBOL[:Float]
+    return data.unpack1(DATA_TYPE_FORMAT[type])
+  when DATA_TYPE_SYMBOL[:String]
+    return data
+  else
+    raise StandardError, "Invalid type"
+  end
+end
+```
+
+Y... el test está bien ahora. De acuerdo, después de abordar este caso faltante, vamos a seguir.
+
+### Pensar en cómo `serialize` debería funcionar realmente
+
+Volviendo a `key_size`, todavía necesitaría pasarle el tipo, lo que parece un acoplamiento innecesario. Cuando siento que hay un acoplamiento innecesario, me pregunto cómo se supone que debe usarse y si vale la pena. Si el tamaño de la clave se calculará al serializar algo, y ese será el único caso y `key_size` es muy simple, ¿realmente necesito una función auxiliar para ello? No lo creo. Además, también necesitaría un `value_size` si voy a mantener `key_size`, pero hacen lo mismo, y en realidad son dos nombres para lo mismo: obtener el tamaño de algunos datos empaquetados. Si mis tests ya verifican que los datos están correctamente empaquetados, y no estoy usando mi propia implementación sino la biblioteca de Ruby para esto, entonces un test para verificar el tamaño realmente no aumentaría el nivel de confianza de la suite de tests. Los tests actuales verifican que mi comprensión de cómo se empaquetan y desempaquetan los datos es correcta, por lo que puedo confiar en ellas.
+
+Entonces, ¿qué sigue? Después de intentos fallidos de crear más tests, obtuve conocimiento sobre cómo deberían funcionar las cosas internamente, lo cual es, por supuesto, útil. Creo que ahora puedo empezar a pensar en el proceso de serialización real y ver qué me falta en mi implementación actual. ¿Cómo se vería este test? ¿Qué información se necesita para serializar en el formato esperado del modelo Bitcask? Si estuviera usando una base de datos clave-valor, para almacenar un registro solo querría pasarle una clave y un valor. Así es como se verá la interfaz: `serialize(key:, value:)`. Pero... ¿y si quiero un timestamp personalizado por alguna razón? Me gustaría tener la posibilidad de especificarlo, pero si no se proporciona, que por defecto sea `now`. Internamente puedo manejar la creación del checksum, generar el timestamp y obtener el tipo y el tamaño de la clave y el valor. Debería devolver algo que me permita comprobar que funcionó. Tal vez podría ser el tamaño del registro para poder verificar que es igual al tamaño del CRC + el header + la clave + el valor. Y también podría devolver la clave + valor empaquetados para poder verificar que no estén vacíos (porque eso no tendría sentido para un arreglo de bytes).
+
+### Hacer que el test para `serialize` pase (no, no implementar `serialize`)
+
+Veo que Ruby tiene una implementación de `Faker`, así que la usaré para generar una clave aleatoria y un valor con una oración muy larga. Dado que estos dos valores falsos serán costosos de calcular, los memorizaré y los colocaré fuera del test, dentro de la suite (`require 'faker'` es necesario en `spec/spec_helper.rb` y la "gema" debe ser añadida en el `Gemfile`, pero omitiré esos detalles de ahora en adelante):
+
+```rb
+RSpec.describe KVDatabase::Serializer do
+  describe "#serialize" do
+    let(:key) { Faker::Lorem.word }
+    let(:value) { Faker::Lorem.sentence(word_count: 5_000) }
+  end
+
+  # tests
+end
+```
+
+Y ahora el test:
+
+```rb
+it "serializes" do
+  crc_size = 4
+  header_size = 14
+  crc_and_header_size = crc_size + header_size
+
+  size, data = KVDatabase::Serializer.serialize(key: key, value: value)
+
+  key_size = KVDatabase::Serializer.size(data: key, type: :String)
+  value_size = KVDatabase::Serializer.size(data: value, type: :String)
+  expected_size = crc_and_header_size + key_size + value_size
+
+  expect(size).to eq(expected_size)
+  expect(data).not_to be_empty
+end
+```
+
+Fallará, por supuesto, porque ni `size` ni `serialize` están implementados. La implementación de `size` es obvia, dado que ya la hemos visto antes.
+
+```rb
+def self.size(data:, type:)
+  return pack(data: data, type: type).bytes.length
+end
+```
+
+Ahora las cosas se ponen interesantes. ¿Cómo puedo hacer que el test pase? Sé el tamaño que debe tener el CRC, y sé el tamaño que debe tener el header, así que puedo tener constantes para eso dentro de `Serializer` también:
+
+```rb
+CRC32_SIZE = 4
+    
+HEADER_SIZE = 14
+```
+
+Y regresar la suma en la primera posición de `serialize`:
+
+```rb
+def self.serialize(key:, value:, epoch: Time.now.to_i)
+  return [CRC32_SIZE + HEADER_SIZE, 0]
+end
+```
+
+Ahora a esa primera parte le falta el tamaño de la clave y el valor. Así que los calcularé usando `size` y los agregaré a la suma:
+
+```rb
+def self.serialize(key:, value:, epoch: Time.now.to_i)
+  key_size = size(data: key)
+  value_size = size(data: value)
+
+  return [CRC32_SIZE + HEADER_SIZE + key_size + value_size, 0]
+end
+```
+
+Espera, pero eso no funcionará porque `size` necesita el tipo de `key` y `value`. ¿Cómo obtenerlos? Tener que pasarlos a `serialize` sería terrible. ¿No hay una forma buena de hacerlo? Si los tipos son símbolos usando el nombre real del tipo en Ruby, ¿no puedo simplemente obtener el tipo de `key` y `value` y convertirlo en un símbolo? Veo que dado que estos tipos son `clases` en Ruby, podría hacer algo como `key.class` y `value.class`, pero eso me daría la representación interna que Ruby usa, y quiero que sean símbolos. Veo que no puedo obtener un símbolo directamente desde allí, así que necesito primero convertirlo en una cadena y luego convertir esa cadena en un símbolo, así que tendría `key.class.to_s.to_sym` y `value.class.to_s.to_sym`:
+
+```rb
+def self.serialize(key:, value:, epoch: Time.now.to_i)
+  key_type = key.class.to_s.to_sym
+  value_type = value.class.to_s.to_sym
+
+  key_size = size(data: key, type: key_type)
+  value_size = size(data: value, type: value_type)
+
+  return [CRC32_SIZE + HEADER_SIZE + key_size + value_size, 0]
+end
+```
+
+Si corro los tests ahora, puedo ver que el test de tamaño pasa, pero la de vacío sigue fallando, lo que significa que mi enfoque funcionó para obtener el tamaño y el tipo de la clave y el valor. Vamos a enfocarnos en un pequeño refactor aquí primero. Estoy haciendo lo mismo para obtener el tipo de la clave y el valor, así que vamos a introducir un pequeño ayudante para esto:
+
+```rb
+def self.type(data)
+  return data.class.to_s.to_sym
+end
+```
+
+Y ahora usarlo:
+
+```rb
+def self.serialize(key:, value:, epoch: Time.now.to_i)
+  key_type = type(key)
+  value_type = type(value)
+
+  key_size = size(data: key, type: key_type)
+  value_size = size(data: value, type: value_type)
+
+  return [CRC32_SIZE + HEADER_SIZE + key_size + value_size, 0]
+end
+```
+
+Eso es mejor y el test aún funciona. Ahora, para que los datos no estén vacíos y hacer que el test pase, lo único que necesito hacer es empaquetar tanto `key` como `value` y devolver el arreglo resultante de bytes al sumarlos:
+
+```rb
+def self.serialize(key:, value:, epoch: Time.now.to_i)
+  key_type = type(key)
+  value_type = type(value)
+
+  key_size = size(data: key, type: key_type)
+  value_size = size(data: value, type: value_type)
+
+  key_bytes = pack(data: key, type: key_type)
+  value_bytes = pack(data: value, type: value_type)
+
+  return [CRC32_SIZE + HEADER_SIZE + key_size + value_size, key_bytes + value_bytes]
+end
+```
+
+Y... ¡ahora el test pasará! Pero... ¿es esta la implementación correcta? No lo es, porque el segundo valor del arreglo debería ser todos los datos serializados, no solo la clave y el valor. Le falta el checksum y el header. Pero, como todo buen *cliffhanger* o momento de suspenso, resolveré eso en la siguiente parte.

@@ -1,0 +1,470 @@
+---
+title: "Construyendo una base de datos clave-valor en Ruby usando TDD: Parte 04"
+series:
+  order: 4
+  title: "Construyendo una base de datos clave-valor en Ruby usando TDD"
+date: '2025/05/12'
+lastmod: '2025/05/12'
+language: es
+tags: ['testing', 'tdd', 'ruby', 'bases de datos']
+authors: ['default']
+draft: false
+featured: false
+summary: In this fourth part, we'll keep working on the tests and implementations to serialize and deserialize data.
+---
+
+<TOCInline toc={props.toc} locale={props.locale} asDisclosure />
+
+## Serializer
+
+### Arreglar cómo funciona `serialize`
+
+Siguiendo lo que quedó pendiente en la parte anterior, ahora es momento de corregir la implementación del método `serialize`, ya que no serializa todos los datos, solo la clave y el valor. Para lograr esto, necesito pensar en el orden de los datos. Primero va el checksum CRC que se generará utilizando todos los datos. Ya tengo la cadena binaria tanto para la clave como para el valor, pero no tengo el header, que es el epoch timestamp, el tamaño de la clave, el tamaño del valor, el tipo de clave y el tipo de valor. Entonces, veamos cómo crear el header y luego unir la clave y el valor a él para formar el CRC y finalmente unir el CRC con el header y la clave y el valor para tener todo el conjunto.
+
+El epoch timestamp ya viene del parámetro, pero necesito empaquetarlo en una cadena binaria. ¿Puedo usar el formato de `DATA_TYPE_FORMAT` para enteros? Sí... no, porque ese mapa es para los formatos de clave y valor, donde quiero tanta información como sea posible, pero para las partes del header, quiero formatos fijos dependiendo de cuánta información quiero poner allí. Este timestamp puede contener 4 bytes de un entero sin signo (un valor negativo representaría fechas antes del 1 de enero de 1970 a medianoche, y no me importan esas), y el formato para eso es `"L<"`. El método `pack` que implementé no toma un formato, así que, ¿qué puedo hacer? Poner cada parte del header dentro de un arreglo y usar el método `pack` original. (Esto está dentro de `serialize`):
+
+```rb
+epoch_bytes = [epoch].pack("L<")
+```
+
+Ahora el tamaño de la clave, que usará el mismo formato.
+
+```rb
+key_size_bytes = [key_size].pack("L<")
+```
+
+Ahora el tamaño del valor, con el mismo formato.
+
+```rb
+value_size_bytes = [value_size].pack("L<")
+```
+
+Ahora el tipo de la clave, que es solo 1 byte para un entero sin signo. Para esto puedo usar el formato `"C"`, que es para caracteres sin signo, pero eso es efectivamente 1 byte sin signo, así que funciona para mí. No se necesita `"<"` al final porque es solo 1 byte, por lo que solo se puede ordenar de una manera. Recuerda que aquí pasaré el entero mapeado para el tipo.
+
+```rb
+key_type_bytes = [DATA_TYPE_INTEGER[key_type]].pack("C")
+```
+
+Ahora el tipo del valor también con el formato `"C"`.
+
+```rb
+value_type_bytes = [DATA_TYPE_INTEGER[value_type]].pack("C")
+```
+
+Con todo eso en su lugar, puedo crear toda la cosa (excepto el checksum).
+
+```rb
+def self.serialize(key:, value:, epoch: Time.now.to_i)
+  key_type = type(key)
+  value_type = type(value)
+
+  key_size = size(data: key, type: key_type)
+  value_size = size(data: value, type: value_type)
+
+  key_bytes = pack(data: key, type: key_type)
+  value_bytes = pack(data: value, type: value_type)
+
+  epoch_bytes = [epoch].pack("L<")
+  key_size_bytes = [key_size].pack("L<")
+  value_size_bytes = [value_size].pack("L<")
+  key_type_bytes = [DATA_TYPE_INTEGER[key_type]].pack("C")
+  value_type_bytes = [DATA_TYPE_INTEGER[value_type]].pack("C")
+
+  return [CRC32_SIZE + HEADER_SIZE + key_size + value_size, epoch_bytes + key_size_bytes + value_size_bytes + key_type_bytes + value_type_bytes + key_bytes + value_bytes]
+end
+```
+
+El test sigue pasando, por supuesto.
+
+Es difícil de leer, así que vamos a refactorizar. Puedo mover el tamaño a una variable `size`:
+
+```rb
+def self.serialize(key:, value:, epoch: Time.now.to_i)
+  key_type = type(key)
+  value_type = type(value)
+
+  key_size = size(data: key, type: key_type)
+  value_size = size(data: value, type: value_type)
+
+  size = CRC32_SIZE + HEADER_SIZE + key_size + value_size
+
+  key_bytes = pack(data: key, type: key_type)
+  value_bytes = pack(data: value, type: value_type)
+
+  epoch_bytes = [epoch].pack("L<")
+  key_size_bytes = [key_size].pack("L<")
+  value_size_bytes = [value_size].pack("L<")
+  key_type_bytes = [DATA_TYPE_INTEGER[key_type]].pack("C")
+  value_type_bytes = [DATA_TYPE_INTEGER[value_type]].pack("C")
+
+  return [size, epoch_bytes + key_size_bytes + value_size_bytes + key_type_bytes + value_type_bytes + key_bytes + value_bytes]
+end
+```
+
+Sigue pasando. Ahora movamos los datos del header y los datos de la clave y el valor a variables auxiliares, una será `header` y la otra simplemente `data`:
+
+```rb
+def self.serialize(key:, value:, epoch: Time.now.to_i)
+  key_type = type(key)
+  value_type = type(value)
+
+  key_size = size(data: key, type: key_type)
+  value_size = size(data: value, type: value_type)
+
+  size = CRC32_SIZE + HEADER_SIZE + key_size + value_size
+
+  key_bytes = pack(data: key, type: key_type)
+  value_bytes = pack(data: value, type: value_type)
+
+  epoch_bytes = [epoch].pack("L<")
+  key_size_bytes = [key_size].pack("L<")
+  value_size_bytes = [value_size].pack("L<")
+  key_type_bytes = [DATA_TYPE_INTEGER[key_type]].pack("C")
+  value_type_bytes = [DATA_TYPE_INTEGER[value_type]].pack("C")
+
+  header = epoch_bytes + key_size_bytes + value_size_bytes + key_type_bytes + value_type_bytes
+  data = key_bytes + value_bytes
+
+  return [size, header + data]
+end
+```
+
+El test sigue pasando. Ahora que sé qué es "la cosa completa" sin el checksum, sé qué pasar para generar ese checksum, simplemente `header + data`.
+
+```rb
+crc32(header + data)
+```
+
+Pero, esto generará el checksum, que es un entero, y lo que quiero es la cadena binaria para poder agregarla al header y a los datos. La pregunta entonces es, ¿debería `crc32` devolver el checksum empaquetado o solo el checksum? Para mí, tiene más sentido devolver solo el checksum, no esperaría que devolviera una cadena binaria del checksum. Así que prefiero:
+
+```rb
+crc32_bytes = [crc32(header + data)].pack("L<") # L< porque son 4 bytes para un entero sin signo también
+```
+
+para obtener esa parte del registro. Uniendo todo:
+
+```rb
+def self.serialize(key:, value:, epoch: Time.now.to_i)
+  key_type = type(key)
+  value_type = type(value)
+
+  key_size = size(data: key, type: key_type)
+  value_size = size(data: value, type: value_type)
+
+  size = CRC32_SIZE + HEADER_SIZE + key_size + value_size
+
+  key_bytes = pack(data: key, type: key_type)
+  value_bytes = pack(data: value, type: value_type)
+
+  epoch_bytes = [epoch].pack("L<")
+  key_size_bytes = [key_size].pack("L<")
+  value_size_bytes = [value_size].pack("L<")
+  key_type_bytes = [DATA_TYPE_INTEGER[key_type]].pack("C")
+  value_type_bytes = [DATA_TYPE_INTEGER[value_type]].pack("C")
+
+  header = epoch_bytes + key_size_bytes + value_size_bytes + key_type_bytes + value_type_bytes
+  data = key_bytes + value_bytes
+
+  crc32_bytes = [crc32(header + data)].pack("L<")
+
+  return [size, crc32_bytes + header + data]
+end
+```
+
+Y ahora, no solo el test pasa, sino que también los datos están correctamente serializados.
+
+### Refactorizar la serialización del header
+
+El único problema que veo es que la función es un poco larga, ¿cómo podríamos hacerla más corta? ¿Qué cosas está haciendo que podrían ser manejadas por otra parte? Bueno, el registro tiene tres partes: checksum, header y datos. El checksum ya tiene una función dedicada, y los datos solo necesitan ser empaquetados. Así que el proceso de construcción del header podría moverse a otra función llamada `serialize_header`. ¿Cómo debería verse esto? Bueno, el header necesita `epoch`, `key_size`, `value_size`, `key_type` y `value_type`, y desde allí puede crear la cadena binaria internamente, por lo que necesita tener la interfaz `serialize_header(epoch:, key_size:, value_size:, key_type:, value_type:)`. Implementémosla:
+
+```rb
+def self.serialize_header(epoch: Time.now.to_i, key_size:, value_size:, key_type:, value_type:)
+  epoch_bytes = [epoch].pack("L<")
+  key_size_bytes = [key_size].pack("L<")
+  value_size_bytes = [value_size].pack("L<")
+  key_type_bytes = [DATA_TYPE_INTEGER[key_type]].pack("C")
+  value_type_bytes = [DATA_TYPE_INTEGER[value_type]].pack("C")
+
+  header = epoch_bytes + key_size_bytes + value_size_bytes + key_type_bytes + value_type_bytes
+
+  return header
+end
+```
+
+Y usarla:
+
+```rb
+def self.serialize(key:, value:, epoch: Time.now.to_i)
+  key_type = type(key)
+  value_type = type(value)
+
+  key_size = size(data: key, type: key_type)
+  value_size = size(data: value, type: value_type)
+
+  size = CRC32_SIZE + HEADER_SIZE + key_size + value_size
+
+  key_bytes = pack(data: key, type: key_type)
+  value_bytes = pack(data: value, type: value_type)
+
+  header = serialize_header(epoch: epoch, key_size: key_size, value_size: value_size, key_type: key_type, value_type: value_type)
+  data = key_bytes + value_bytes
+
+  crc32_bytes = [crc32(header + data)].pack("L<")
+
+  return [size, crc32_bytes + header + data]
+end
+```
+
+Se ve mejor, y el test sigue pasando, pero todavía hay margen para mejorar cómo funciona internamente `serialize_header`. Dado que el header es un conjunto, y es posible empaquetar todos los elementos a la vez usando un formato por elemento, ¿qué tal si simplemente hago esto?
+
+```rb
+def self.serialize_header(epoch:, key_size:, value_size:, key_type:, value_type:)
+  return [epoch, key_size, value_size, DATA_TYPE_INTEGER[key_type], DATA_TYPE_INTEGER[value_type]].pack("L<L<L<CC")
+end
+```
+
+El test sigue pasando, así que funciona como se espera, ya que todas las partes empaquetadas son un arreglo, unirlas es solo unir elementos de un arreglo para formar un arreglo más grande, sabiendo dónde están los límites basados en el tamaño de cada parte. Como otra mejora, no me gusta tener el formato para el header codificado directamente ahí, y cuando no te gustan las cosas "hardcodeadas", simplemente introduces constantes. Así que introduciré una constante `HEADER_FORMAT` para esto:
+
+```rb
+HEADER_FORMAT = "L<L<L<CC"
+```
+
+Y ahora solo a usarla:
+
+```rb
+def self.serialize_header(epoch:, key_size:, value_size:, key_type:, value_type:)
+  return [epoch, key_size, value_size, DATA_TYPE_INTEGER[key_type], DATA_TYPE_INTEGER[value_type]].pack(HEADER_FORMAT)
+end
+```
+
+El test todavía pasa.
+
+### Refactorizar el formato del checksum que cumpla con CRC-32
+
+Ahora la única cadena mágica está aquí en `serialize`:
+
+```rb
+crc32_bytes = [crc32(header + data)].pack("L<")
+```
+
+Así que también la moveré a una constante:
+
+```rb
+CRC32_FORMAT = "L<"
+```
+
+Y usarla:
+
+```rb
+def self.serialize(key:, value:, epoch: Time.now.to_i)
+  key_type = type(key)
+  value_type = type(value)
+
+  key_size = size(data: key, type: key_type)
+  value_size = size(data: value, type: value_type)
+
+  size = CRC32_SIZE + HEADER_SIZE + key_size + value_size
+
+  key_bytes = pack(data: key, type: key_type)
+  value_bytes = pack(data: value, type: value_type)
+
+  header = serialize_header(epoch: epoch, key_size: key_size, value_size: value_size, key_type: key_type, value_type: value_type)
+  data = key_bytes + value_bytes
+
+  crc32_bytes = [crc32(header + data)].pack(CRC32_FORMAT)
+
+  return [size, crc32_bytes + header + data]
+end
+```
+
+El test sigue pasando y cómo están estructuradas las funciones se ve mejor ahora. Algunos pueden argumentar que todavía es larga, pero para mí está bien porque es muy fácil de seguir si entiendes cómo se va a almacenar el registro.
+
+### Crear un test para serializar el header
+
+Quizás invertí el proceso, pero supongo que a veces eso simplemente sucede debido a cómo terminan funcionando las cosas, porque ahora crearé un test para `serialize_header` usando un timestamp específico. ¿Qué debería probar? Esencialmente lo mismo, que el tamaño es igual al tamaño del header y que el header no está vacío.
+
+```rb
+it "serializes the header" do
+  header_size = 14
+
+  header = KVDatabase::Serializer.serialize_header(epoch: 1_747_005_652, key_size: 10, value_size: 100, key_type: :Integer, value_type: :Float)
+
+  expect(header.length).to eq(header_size)
+  expect(header).not_to be_empty
+end
+```
+
+El test pasará, como se esperaba, así que ahora esta función también está cubierta por un test.
+
+### Refactorizar los tests para serializar datos
+
+Ahora es el momento de refactorizar un poco el test de serialización, porque ambas necesitan `header_size`, así que moveré eso a una variable memorizada que se pueda usar en cualquier test de la suite.
+
+```rb
+RSpec.describe KVDatabase::Serializer do
+  let(:header_size) { 14 }
+  # resto de variables memorizadas y tests
+end
+```
+
+Y simplemente eliminar `header_size` de los tests:
+
+```rb
+RSpec.describe KVDatabase::Serializer do
+  let(:header_size) { 14 }
+  let(:key) { Faker::Lorem.word }
+  let(:value) { Faker::Lorem.sentence(word_count: 5_000) }
+
+  describe "#serialize" do
+    let(:key) { "café" }
+    let(:value) { Faker::Lorem.sentence(word_count: 5_000) }
+
+    it "serializes" do
+      crc_size = 4
+      crc_and_header_size = crc_size + header_size
+
+      size, data = KVDatabase::Serializer.serialize(key: key, value: value)
+
+      key_size = KVDatabase::Serializer.size(data: key, type: :String)
+      value_size = KVDatabase::Serializer.size(data: value, type: :String)
+      expected_size = crc_and_header_size + key_size + value_size
+
+      expect(size).to eq(expected_size)
+      expect(data).not_to be_empty
+    end
+  end
+
+  it "serializes the header" do
+    header = KVDatabase::Serializer.serialize_header(epoch: 1_747_005_652, key_size: 10, value_size: 100, key_type: :Integer, value_type: :Float)
+
+    expect(header.length).to eq(header_size)
+    expect(header).not_to be_empty
+  end
+
+  # resto de los tests
+end
+```
+
+Pasará porque el nombre es el mismo, así que no quedan más cambios.
+
+### Pensar acerca de `deserialize`
+
+Lo siguiente que hay que hacer es el inverso de este proceso, que es implementar el método `deserialize`. ¿Qué espero de él? ¿Qué información necesito pasarle para que funcione? Bueno, en realidad necesito el registro completo, desde el checksum hasta el valor. Necesito el checksum para la comparación y saber que la integridad de los datos no ha sido comprometida. Necesito el header porque el tamaño de la clave y el valor me ayudará a saber dónde comienza y termina la clave y dónde comienza y termina el valor, y el tipo de clave y valor me ayudará a saber cómo "interpretar" los datos almacenados, si es un entero, un float o una cadena, y desempacar el valor adecuadamente. El resultado que esperaría de él sería obtener el timestamp correcto, la clave y el valor.
+
+Este test será un poco más complicado, porque los datos están en formato de cadena binaria. Pero antes de eso, mientras intentaba obtener la cadena binaria esperada usando `serialize`, noté que fallaría con caracteres especiales.
+
+### Arreglar la implementación de `serialize` para caracteres especiales
+
+Para esta entrada:
+
+```rb
+# src/kv_database/serializer.rb
+
+# module (KVDatabase, Serializer and all that)
+
+if __FILE__ == $0
+  puts KVDatabase::Serializer.serialize(key: "café", value: 1.23, epoch: 1_747_005_650).to_s
+end
+```
+
+Falló:
+
+![Serialize failing](/static/images/building-a-key-value-database-in-ruby-using-tdd/part-04/01.png "01 - Serialize failing")
+
+Primero, cambiemos la `key` memorizada para los tests para usar caracteres especiales:
+
+```rb
+let(:key) { "café" }
+```
+
+El test fallará. Todo esto falló porque la codificación de las cadenas binarias no es la misma. `"café"` está codificado usando UTF-8, mientras que `1.23 ` está empaquetado como una cadena binaria con la codificación ASCII-8-BIT. Esto me permitió ver que el test no era tan confiable porque no tomaba en cuenta estos casos. Vamos a entender qué significa la codificación y cómo solucionarlo:
+
+La codificación no tiene nada que ver con el almacenamiento de cadenas, no es como "almacenar en ASCII o UTF-8". Una cadena se convertirá en el arreglo correcto de bytes independientemente de cómo esté codificada. Por defecto, al menos en Ruby, las cadenas binarias están codificadas en ASCII-8-BIT porque los bytes se ven solo como valores en bruto, sin interpretarlos como caracteres. Entonces, ¿por qué codificar en UTF-8 si la cadena binaria será la correcta de todos modos? Porque alguien tiene que hacer ese proceso. Si en `pack` simplemente no hago nada para una cadena, solo obtendré la cadena en sí, no la cadena binaria, y dado que quiero decir que el texto que estará allí podría contener caracteres especiales, uso UTF-8. Entonces, en resumen, la codificación se trata solo de interpretación, no de almacenamiento, pero debe quedar claro en algún lugar cuál es la codificación que se espera o se usa.
+
+Así que está bien codificar cualquier cadena como UTF-8 antes de construir todo el registro solo para estar en la misma sintonía de las cadenas binarias. Pero si todos los datos que no son una cadena (enteros y floats) se convertirán en una cadena binaria con una codificación diferente, la única forma de solucionar esto es asegurando que tanto `key_bytes` como `value_bytes`, que son los únicos que pueden ser cadenas, estén en la misma codificación que los demás.
+
+```rb
+def self.serialize(key:, value:, epoch: Time.now.to_i)
+  key_type = type(key)
+  value_type = type(value)
+
+  key_size = size(data: key, type: key_type)
+  value_size = size(data: value, type: value_type)
+
+  size = CRC32_SIZE + HEADER_SIZE + key_size + value_size
+
+  key_bytes = pack(data: key, type: key_type).force_encoding(Encoding::ASCII_8BIT)
+  value_bytes = pack(data: value, type: value_type).force_encoding(Encoding::ASCII_8BIT)
+
+  header = serialize_header(epoch: epoch, key_size: key_size, value_size: value_size, key_type: key_type, value_type: value_type)
+  data = key_bytes + value_bytes
+
+  crc32_bytes = [crc32(header + data)].pack(CRC32_FORMAT)
+
+  return [size, crc32_bytes + header + data]
+end
+```
+
+Ahora el test pasará. Lo que me preocupaba al principio, y la razón por la que expliqué mucho sobre que la codificación no es almacenamiento, es porque, si piensas en
+
+```rb
+key_bytes = pack(data: key, type: key_type).force_encoding(Encoding::ASCII_8BIT)
+value_bytes = pack(data: value, type: value_type).force_encoding(Encoding::ASCII_8BIT)
+```
+
+de una manera que `.force_encoding(Encoding::ASCII_8BIT)` hará que la `"é"` en café se pierda, eso está mal, porque la codificación no es almacenamiento, no hay manipulación de bytes. Es solo una indicación de cómo estas cadenas deben interpretarse cuando quieras leerlas. Así que no importa. El texto se conservará y cuando queramos leerlo, sabemos que tenemos que interpretarlo como UTF-8.
+
+Ahora el test pasará nuevamente y dejaré `key` como `"café"` en la suite de tests para tener completa confianza en este test.
+
+### Haciendo que pasen los tests para `deserialize`
+
+Después de arreglar esto, volveré al test para `deserialize`, el cual es interesante.
+
+```rb
+describe "#deserializes" do
+  let(:serialized_data_1) { OpenStruct.new(
+    raw: "\x1E+`K\xD20!h\x05\x00\x00\x00\b\x00\x00\x00\x03\x02caf\xC3\xA9\xAEG\xE1z\x14\xAE\xF3?",
+    epoch: 1_747_005_650,
+    key: "café",
+    value: 1.23
+  )}
+  let(:serialized_data_2) { OpenStruct.new(
+    raw: "\xC8M\xD9M\xD30!h\x06\x00\x00\x00\x11\x00\x00\x00\x03\x03\xC3\xA9liteRandom expression",
+    epoch: 1_747_005_651,
+    key: "élite",
+    value: "Random expression"
+  )}
+  let(:serialized_data_3) { OpenStruct.new(
+    raw: "\x8D\xBB\xA9\x93\xD40!h\b\x00\x00\x00\b\x00\x00\x00\x01\x01\x18\x00\x00\x00\x00\x00\x00\x00\n\x00\x00\x00\x00\x00\x00\x00",
+    epoch: 1_747_005_652,
+    key: 24,
+    value: 10
+  )}
+
+  it "deserializes" do
+    epoch, key, value = KVDatabase::Serializer.deserialize(serialized_data_1.raw)
+
+    expect(epoch).to eq(serialized_data_1.epoch)
+    expect(key).to eq(serialized_data_1.key)
+    expect(value).to eq(serialized_data_1.value)
+  end
+
+  it "deserializes" do
+    epoch, key, value = KVDatabase::Serializer.deserialize(serialized_data_2.raw)
+
+    expect(epoch).to eq(serialized_data_2.epoch)
+    expect(key).to eq(serialized_data_2.key)
+    expect(value).to eq(serialized_data_2.value)
+  end
+
+  it "deserializes" do
+    epoch, key, value = KVDatabase::Serializer.deserialize(serialized_data_3.raw)
+
+    expect(epoch).to eq(serialized_data_3.epoch)
+    expect(key).to eq(serialized_data_3.key)
+    expect(value).to eq(serialized_data_3.value)
+  end
+end
+```
+
+Parece complicado, pero es bastante simple. `OpenStruct` es simplemente un constructor de estructuras clave-valor donde los atributos o propiedades se pueden acceder utilizando la notación de punto. Un hash (u objeto si vienes de JS) se puede usar, pero la notación de punto no se puede usar con ellos. Es por eso que OpenStruct es preferido para estas situaciones. Voy a probar tres estructuras diferentes. `raw` contendrá la cadena binaria para todo el registro (la que obtuve al usar `serialize`). Los tests verificarán que `epoch`, `key` y `value` sean interpretados correctamente desde la cadena binaria (los datos serializados). Los tests fallarán porque `deserialize` ni siquiera existe. Pero veamos cómo hacer que estos tests pasen en la siguiente parte, porque esta ya es larga.
