@@ -1,5 +1,5 @@
 {
-  "en":{
+  "en": {
     "frontend": 1,
     "backend": 2,
     "fullstack": 1,
@@ -13,9 +13,10 @@
     "redis": 1,
     "docker": 2,
     "ruby": 6,
-    "databases": 6
+    "databases": 6,
+    "reflections": 1
   },
-  "es":{
+  "es": {
     "frontend": 1,
     "backend": 2,
     "fullstack": 1,
@@ -29,6 +30,7 @@
     "redis": 1,
     "docker": 2,
     "ruby": 6,
-    "bases de datos": 6
+    "bases de datos": 6,
+    "reflexiones": 1
   }
 }
