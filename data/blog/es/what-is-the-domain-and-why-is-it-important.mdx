@@ -1,0 +1,38 @@
+---
+title: '¿Qué es el dominio y por qué es importante?'
+date: '2026/02/24'
+lastmod: '2026/02/24'
+language: es
+tags: ['reflexiones', 'ddd']
+authors: ['default']
+draft: false
+featured: false
+summary: El dominio nos permite entender qué problema estamos tratando de resolver y alinea a producto con tecnología
+---
+
+Una de las cosas más importantes que he aprendido como ingeniero de software es diseñar sistemas alrededor del dominio.
+
+"¿Qué es el dominio?" — podrás preguntarte.
+
+En términos de diseño de software, yo definiría el dominio como cualquier unidad útil de negocio.
+
+Por ejemplo, digamos que el negocio es bienes raíces. Un dominio podría ser "rentas" y otro podría ser "ventas". Ambos tienen sus propias reglas y lógica y representan unidades útiles que nos dan una imagen completa del negocio.
+
+Ese es el punto.
+
+¿Por qué el software — el código, las entidades de la base de datos, las herramientas, etc. — usaría nombres técnicos y oscuros? ¿Por qué el software y el negocio hablarían dos lenguajes distintos?
+
+Esta desconexión crea problemas que todos hemos visto en desarrollo de software:
+
+- Producto/Negocio e ingeniería están hablando de lo mismo, pero usando diferentes palabras. Esto crea confusión innecesaria y fricción
+- Las reglas de negocio y la semántica están por todos lados. Esto significa que los límites no son claros. Límites no claros son la receta perfecta para deuda técnica. Esta deuda implica software rígido que es un dolor de cabeza mantener y no evoluciona con el producto
+
+Si, por el contrario, diseñamos alrededor del dominio, creamos software expresivo. Tan expresivo que cualquiera con conocimiento del negocio podría entender la mayoría de lo que está pasando incluso si no conocen los detalles específicos de cómo programar.
+
+Código fácil de leer es una de las partes fundamentales del software sostenible.
+
+El dominio es tan importante que es el núcleo de cualquier tipo de arquitectura "limpia". Todas las demás capas dependen del dominio, mientras que el dominio no depende de nada más (¿por qué lo haría?). Esto es trivial si digo que para entender un sistema, tienes que empezar por entender el problema que está tratando de resolver.
+
+Es tan importante que incluso hay una filosofía de diseño llamada "Domain-Driven Design" (también conocido como DDD).
+
+Así que ahora, cada vez que escuches "el dominio" en este contexto, ya sabes a qué se refieren, y si quieres abordar un sistema complejo, ya sabes por dónde empezar.

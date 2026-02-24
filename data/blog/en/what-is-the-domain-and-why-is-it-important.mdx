@@ -1,0 +1,38 @@
+---
+title: 'What is the domain and why is it important?'
+date: '2026/02/24'
+lastmod: '2026/02/24'
+language: en
+tags: ['reflections', 'ddd']
+authors: ['default']
+draft: false
+featured: false
+summary: Domain allows us to understand the problem we're trying to solve and align product with tech
+---
+
+One of the most important things I have learned as a software engineer is to design systems around the domain.
+
+“What’s the domain?” — you might ask.
+
+In terms of software design, I would define the domain as any useful unit of business.
+
+For example, let’s say the business is real estate. One domain might be “rentals” and another one might be “sales”. Both have their own rules and logic and represent useful units that give us a full picture of the business.
+
+That’s the whole point.
+
+Why would the software — the code, the database entities, the tools, etc. — use technical and obscure names? Why would the software and the business speak two different languages?
+
+This disconnection creates problems we’ve all seen in software development:
+
+- Product/Business and engineering are talking about the same thing, but using different words. This creates unnecessary confusion and friction
+- Business rules and semantics are all over the place. This means that the boundaries are not clear. Unclear boundaries are the perfect recipe for technical debt. This debt implies rigid software that is a headache to maintain and that doesn’t evolve with the product
+
+If, instead, we design around the domain, we create expressive software. So expressive that anyone with business knowledge could understand most of what’s happening even if they don’t know the specifics of how to code.
+
+Code that is easy to read is one of the fundamental parts of sustainable software.
+
+The domain is so important that it is the core of any kind of “clean” architecture. Every other layer relies on the domain, while the domain doesn’t rely on anything else (why would it?). This is trivial if I say that in order to understand a system, you have to start by understanding the problem it’s trying to solve.
+
+It’s so important that there’s even a design philosophy called “Domain-Driven Design” (a.k.a. DDD).
+
+So now, every time you hear “the domain” in this context, you know what they mean, and if you want to approach a complex system, you know where to start.
