@@ -1,0 +1,35 @@
+---
+title: 'Principle Of Least Astonishment'
+date: '2026/03/16'
+lastmod: '2026/03/16'
+language: en
+tags: ['reflections']
+authors: ['default']
+draft: false
+featured: false
+summary: Why would something look different from what we expect?
+---
+
+When we talk about creating “maintainable” or “sustainable” software, one of the key parts involved in achieving so is the Principle of Least Astonishment (a.k.a. POLA).
+
+Sounds fancy, but it’s very simple.
+
+Code is read many more times than it is written. This means that if software developers are going to spend a lot of time reading code, it should be easy to read, right?
+
+Well, that’s where this principle comes into play.
+
+One of the traits of code that is easy to read is that if some file, class, method, or any other artifact has a name that says “I do this”, then you expect it to do such a thing because… why wouldn’t it?
+
+When you expect one thing and see something else, it surprises you. It “astonishes” you. Surprises in life might be nice, but when it comes to software, they’re not.
+
+It’s not only about misleading names. It’s also about inconsistencies. For example, if you see that in module A the folder structure is one and in module B you find a different one, again, it surprises you.
+
+So, this principle just says: “Do what you would expect to find. Do what makes sense. Create code so boring that there are no surprises and anyone can understand what’s going on without thinking they’re not smart enough”.
+
+Boring code is predictable code. Predictable code is reliable.
+
+If you’re looking for fun and surprises, you can go skydiving or try whatever activities people who love strong thrills usually enjoy.
+
+But software? It’s not like people say, “I want to do something risky. Let’s create technical debt.” Well, at least I hope they don’t.
+
+Next time you approach a problem, take a step back and think how you would expect things to work if you were an outsider. That’s the heart of POLA.

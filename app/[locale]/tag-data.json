@@ -14,7 +14,7 @@
     "docker": 2,
     "ruby": 6,
     "databases": 6,
-    "reflections": 3,
+    "reflections": 4,
     "ddd": 1
   },
   "es": {
@@ -32,7 +32,7 @@
     "docker": 2,
     "ruby": 6,
     "bases de datos": 6,
-    "reflexiones": 3,
+    "reflexiones": 4,
     "ddd": 1
   }
 }
