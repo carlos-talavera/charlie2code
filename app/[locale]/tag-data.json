@@ -15,7 +15,8 @@
     "ruby": 6,
     "databases": 6,
     "reflections": 4,
-    "ddd": 1
+    "ddd": 1,
+    "mistakes": 1
   },
   "es": {
     "frontend": 1,
@@ -33,6 +34,7 @@
     "ruby": 6,
     "bases de datos": 6,
     "reflexiones": 4,
-    "ddd": 1
+    "ddd": 1,
+    "errores": 1
   }
 }

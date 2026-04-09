@@ -1,0 +1,31 @@
+---
+title: 'Diseñar una tabla de pedidos: no es tan simple'
+date: '2026/04/09'
+lastmod: '2026/04/09'
+language: es
+tags: ['errores']
+authors: ['default']
+draft: false
+featured: false
+summary: Cuando algo suena trivial, tal vez no es así de simple y hay complejidad oculta.
+---
+
+Como freelancer, una vez trabajé en un sistema interno de gestión de pedidos con requerimientos comunes. Nada del otro mundo. Empecé a diseñar una base de datos en PostgreSQL. Algunas tablas por aquí y por allá, relaciones sencillas, 4ta forma normal porque siempre voy más allá, índices triviales para rendimiento y eso es todo. Después de un día el modelo de datos estaba listo.
+
+Después desarrollé el backend y el frontend, lo lancé a producción después de unos meses y los usuarios empezaron a usarlo.
+
+En el modelo de datos, un pedido pertenece a un cliente y la relación se establece a través del ID del cliente. También hay una columna para el ID de la dirección, la cual por supuesto tiene que pertenecer a ese cliente.
+
+Tiene sentido, ¿verdad? Bueno, no. Todo estaba funcionando hasta que ya no.
+
+Es posible cambiar el nombre de un cliente, porque resulta que los errores tipográficos son reales (ya sé, ¿verdad?). Lo mismo para la dirección, en caso de que quieras modificar la calle u otro detalle por cualquier motivo.
+
+Este sistema funciona solo en México e incluye una sección de métricas donde puedes ver el "top de clientes" y "top de estados" en términos de ventas. Si cambias el nombre de un cliente, o el estado de una dirección, las métricas no se van a romper en términos de funcionalidad, pero se romperán en términos de exactitud, porque los datos originales ya no están ahí.
+
+Este problema exacto ocurrió después de unas semanas del lanzamiento.
+
+La clave para arreglar estaba en entender que cada registro en la tabla de pedidos no era solo un pedido con sus detalles, sino también una "foto" de él. Una foto encapsula todo en sí misma, así que no hay necesidad de búsquedas en otras tablas. Debido a esto, repetir las columnas de cliente y dirección en la tabla de pedidos fue suficiente.
+
+Sin embargo, los IDs originales se mantienen, no para métricas, sino para preservar la relación y hacer cumplir reglas como prevenir eliminaciones cuando hay pedidos activos.
+
+Esa es una de mis cicatrices como ingeniero de software. Cometer errores es algo que nos da miedo, pero es parte de crecer. Puedes leer mucho sobre cómo hacer algo "bien", pero no entender completamente por qué ese enfoque es el correcto, hasta que no lo haces así y sufres las consecuencias.

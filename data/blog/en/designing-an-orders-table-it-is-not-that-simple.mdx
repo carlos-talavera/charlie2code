@@ -1,0 +1,31 @@
+---
+title: 'Designing an orders table: it is not that simple'
+date: '2026/04/09'
+lastmod: '2026/04/09'
+language: en
+tags: ['mistakes']
+authors: ['default']
+draft: false
+featured: false
+summary: When something sounds trivial, perhaps it's not that simple and there's hidden complexity.
+---
+
+As a freelancer, I once worked on an internal order management system with common requirements. Nothing crazy. I started designing a PostgreSQL database. Some tables here and there, straightforward relationships, 4th normal form because I always go the extra mile, trivial indices for performance and that’s it. After a day the data model was done.
+
+Then I developed the backend and the frontend, shipped it to production after a few months and users started to use it.
+
+In the data model, an order belongs to a customer and the relationship is established through the ID of the customer. There’s also a column for the ID of the address, which of course has to belong to that customer.
+
+That makes sense, doesn’t it? Well, no. Everything was working as expected until it didn’t.
+
+It is possible to change a customer’s name, because turns out typos are real (I know, right?). The same for the address, in case you want to modify the street or other detail because of whatever reason.
+
+This system works only for Mexico and includes an analytics section where you can see the “top of clients” and “top of states” in terms of sales. If you change the name of a client, or the state of an address, the analytics are not going to break in terms of functionality, but they will break in terms of correctness, because the original data is no longer there.
+
+This exact issue happened after a few weeks of the release.
+
+The key to fixing this was to understand that each record in the orders table was not just an order with its details, but also a snapshot of it. A snapshot encapsulates everything within itself, so there’s no need for lookups in other tables. Because of this, repeating the columns of customer and address in the orders table was enough.
+
+The original IDs still remain, though—not for analytics, but to preserve the relationship and enforce rules like preventing deletion when there are active orders.
+
+That’s one of my scars as a software engineer. Making mistakes is something we’re afraid of, but it’s part of growing. You can read a lot on how to do something “right”, but not fully understand why that approach is the right one, until you don’t do it that way and suffer the consequences.
