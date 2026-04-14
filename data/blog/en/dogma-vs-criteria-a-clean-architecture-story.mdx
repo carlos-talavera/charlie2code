@@ -1,0 +1,48 @@
+---
+title: 'Dogma vs Criteria: A Clean Architecture Story'
+date: '2026/04/14'
+lastmod: '2026/04/14'
+language: en
+tags: ['reflections', 'clean architecture']
+authors: ['default']
+draft: false
+featured: false
+summary: Sometimes "innocent" decisions have deeper consequences. Knowing when that's so is the difference between being critical and being dogmatic.
+---
+
+I once had a PR review where my teammate and I disagreed on something small: where a controller should live.
+It ended up being about something much bigger.
+
+It happened while working on a backend using [Clean Architecture](https://blog.cleancoder.com/uncle-bob/2012/08/13/the-clean-architecture.html).
+
+I had implemented the first endpoint and placed the controller in the “presentation” layer, which (to me) was consistent with how we were structuring things.
+
+During the review, he suggested moving it to the “infrastructure” layer. His argument was that that’s what we can change when infrastructure changes—he was thinking mostly about EC2 and how the service was deployed. From his point of view, it made things simpler and easier to reason about.
+
+I didn’t fully agree, but instead of pushing back right away, I asked him why the presentation layer didn’t feel right to him.
+
+His answer was pretty pragmatic: strict layering can add complexity, and in the end, Clean Architecture isn’t one single thing—there are many ways to implement it, and what matters is what works for us.
+
+That made me pause.
+
+I tried to really understand his point of view, and then I stepped back and thought about Clean Architecture itself—why it was created in the first place, what problem it’s trying to solve, and why we were using it.
+
+And that’s when I realized something important: I wasn’t being dogmatic.
+
+If anything, the reason this discussion mattered was the opposite. Each layer has a purpose. It exists to prevent certain kinds of dependencies, to keep the system from evolving in ways that make it harder to maintain.
+
+So moving the controller into the infrastructure layer wasn’t just a different preference—it was changing the meaning of the layer.
+
+And if we were going to change that meaning, then we needed to be explicit about it. Otherwise, we’d be quietly drifting away from the original intent without realizing it.
+
+I explained it that way, and he agreed. He told me he had been so focused on infrastructure concerns that he didn’t realize he was redefining the layer itself.
+
+We kept the original structure and moved on.
+
+The interesting part for me wasn’t who was right. It was the process.
+
+Taking the time to understand the other perspective, and then going back to first principles instead of arguing from habit.
+
+Because sure, putting the controller in one layer or the other probably wouldn’t have broken anything.
+
+But if you stop questioning why things are the way they are, that’s when architecture decisions stop being intentional—and start being accidental.

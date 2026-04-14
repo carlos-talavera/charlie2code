@@ -1,0 +1,48 @@
+---
+title: 'Dogma vs Criterio: Una Historia de Clean Architecture'
+date: '2026/04/14'
+lastmod: '2026/04/14'
+language: es
+tags: ['reflexiones', 'clean architecture']
+authors: ['default']
+draft: false
+featured: false
+summary: A veces decisiones "inocentes" tienen consecuencias más profundas. Saber cuándo es así es la diferencia entre ser crítico y ser dogmático.
+---
+
+Una vez tuve una revisión de un _pull request_ donde mi compañero y yo tuvimos un desacuerdo en algo pequeño: dónde debería vivir un controlador.
+Terminó tratándose de algo mucho más grande.
+
+Ocurrió mientras estábamos trabajando en un backend usando [Clean Architecture](https://blog.cleancoder.com/uncle-bob/2012/08/13/the-clean-architecture.html).
+
+Yo había implementado el primer endpoint y había colocado el controlador en la capa de "presentación", lo que (para mí) era consistente con cómo estábamos estructurando las cosas.
+
+Durante la revisión, él sugirió moverlo a la capa de "infraestructura". Su argumento era que eso es lo que podemos cambiar cuando la infraestructura cambie —él estaba pensando sobre todo en EC2 y en cómo estaba desplegado el servicio—. Desde su punto de vista, eso hacía las cosas más simples y más fáciles de entender.
+
+No estuve de acuerdo por completo, pero en lugar de oponerme de inmediato, le pregunté por qué la capa de presentación no se sentía "correcta" para él.
+
+Su respuesta fue bastante pragmática: capas estrictas pueden agregar complejidad, y al final, Clean Architecture no es solo una cosa —hay muchas maneras de implementarla— y lo que importa es lo que funcione para nosotros.
+
+Eso me hizo pausar.
+
+Traté de entender realmente su punto de vista, y luego di un paso atrás y pensé sobre Clean Architecture en sí misma —por qué se creó en primer lugar, qué problema está tratando de resolver, y por qué la estábamos usando—.
+
+Y ahí es cuando me di cuenta de algo importante: yo no estaba siendo dogmático.
+
+En todo caso, la razón por la que esta discusión importaba era la opuesta. Cada capa tiene un propósito. Existe para prevenir ciertos tipos de dependencias, para prevenir que el sistema evolucione de manera que sea más difícil de mantener.
+
+Así que mover el controlador a la capa de infraestructura no era simplemente una preferencia distinta —era cambiar el significado de la capa—.
+
+Y si fuéramos a cambiar ese significado, tendríamos que ser explícitos acerca de ello. De lo contrario, estaríamos sigilosamente desviándonos de la intención original sin darnos cuenta.
+
+Lo expliqué de esa manera, y él estuvo de acuerdo. Me dijo que había estado tan concentrado en temas de infraestructura que no se dio cuenta de que estaba redefiniendo la propia capa.
+
+Mantuvimos la estructura original y seguimos adelante.
+
+La parte interesante para mí no fue quién tenía razón. Fue el proceso.
+
+Tomarse el tiempo para entender la otra perspectiva, y luego regresar a los principios básicos en lugar de discutir por costumbre.
+
+Porque claro, poner el controlador en una capa u otra probablemente no habría roto nada.
+
+Pero si dejas de cuestionarte por qué las cosas son como son, ahí es cuando las decisions de arquitectura dejan de ser intencionales —y pasan a ser accidentales—.

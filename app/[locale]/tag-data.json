@@ -14,9 +14,10 @@
     "docker": 2,
     "ruby": 6,
     "databases": 6,
-    "reflections": 4,
+    "reflections": 5,
     "ddd": 1,
-    "mistakes": 1
+    "mistakes": 1,
+    "clean architecture": 1
   },
   "es": {
     "frontend": 1,
@@ -33,8 +34,9 @@
     "docker": 2,
     "ruby": 6,
     "bases de datos": 6,
-    "reflexiones": 4,
+    "reflexiones": 5,
     "ddd": 1,
-    "errores": 1
+    "errores": 1,
+    "clean architecture": 1
   }
 }
