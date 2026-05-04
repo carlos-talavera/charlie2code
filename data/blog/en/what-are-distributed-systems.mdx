@@ -1,0 +1,42 @@
+---
+title: 'What are distributed systems?'
+date: '2026/05/04'
+lastmod: '2026/05/04'
+language: en
+tags: ['distributed systems']
+authors: ['default']
+draft: false
+featured: false
+summary: An introduction to a concept that is fundamental to understand today's systems.
+---
+
+“Distributed systems” is a commonly used concept today. Perhaps the first time you read it it sounds daunting, and while there are plenty of challenges, the concept itself is simple and it might even give you more clarity when it comes to building this kind of system.
+
+Let’s start from… the beginning.
+
+When software went from being a possibility to being a reality (a virtual one, of course), things were pretty simple: if we wanted to solve a problem, we’d create an application program that would run on one computer. If we needed a database, we’d have another program running in the same machine and they would communicate directly within that machine.
+
+As computers became more powerful, society started relying more and more on them. That’s what we call “digital transformation”.
+
+Given this transformation, it became vital for software to:
+
+- Work when people want to use it (be available)
+- Don’t return incorrect or inconsistent results (be correct)
+
+Things started getting complicated because of availability.
+
+If we have everything running on one computer, and there’s a full crash, everything will go down even if it doesn't have anything to do with our application, the database or any other component of our system.
+
+There’s also a risk of the machine receiving more load than it can handle. In this case, there wouldn’t be a crash, but it would become slow, known today as “service degradation”. Both threaten availability.
+
+Here arises the question: how do we prevent everything from going down and maintain a high (enough) availability? Well, if the problem is that everything is in one machine, what if it wasn’t?
+
+Then we need several machines, instead of having all parts of the system running on the same one, so if one goes down, it only affects a portion of the system.
+
+If the application is in machine A and the database is in machine B, we need a way for them to communicate with each other. Can you guess it?
+
+That’s the whole idea behind a network: communication across nodes (and that’s why the machines within a distributed system are often called nodes).
+
+In a nutshell: **distributed systems are a set of machines that communicate with each other through a network to serve a specific purpose.**
+
+While they’re very powerful and have made possible today’s massive platforms, they come with their own challenges, like machine A going down before receiving a response from machine B, which is a reminder that there are no silver bullets.

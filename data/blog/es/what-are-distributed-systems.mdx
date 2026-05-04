@@ -1,0 +1,42 @@
+---
+title: '¿Qué son los sistemas distribuidos?'
+date: '2026/05/04'
+lastmod: '2026/05/04'
+language: es
+tags: ['sistemas distribuidos']
+authors: ['default']
+draft: false
+featured: false
+summary: Una introducción a un concepto que es fundamental para entender los sistemas actuales.
+---
+
+"Sistemas distribuidos" es un concepto comúnmente usado hoy. Quizás la primera vez que lo lees suena intimidante, y si bien hay muchos retos, el concepto en sí mismo es simple e incluso podría darte más claridad cuando se trata de construir este tipo de sistema.
+
+Empecemos por... el principio.
+
+Cuando el software pasó de ser una posibilidad a ser una realidad (una virtual, claro), las cosas eran muy simples: si queríamos resolver un problema, creábamos un programa de aplicación que se ejecutara en una computadora. Si necesitábamos una base de datos, teníamos otro programa corriendo en la misma máquina y se comunicaban directamente dentro de esa máquina.
+
+Conforme las computadores se hicieron más potentes, la sociedad comenzó a depender más y más de ellas. A eso le llamamos "transformación digital".
+
+Dada esta transformación, se hizo vital que el software:
+
+- Funcione cuando la gente quiere usarlo (estar disponible)
+- No regrese resultados incorrectos o inconsistentes (ser preciso o correcto)
+
+Las cosas se empezaron a complicar debido a la disponibilidad.
+
+Si tenemos todo corriendo en una misma computadora, y hay una caída total, todo va a caerse incluso si no tiene nada que ver con nuestra aplicación, la base de datos o cualquier otro componente de nuestro sistema.
+
+También existe un riesgo de que la máquina reciba más carga de la que puede manejar. En este caso, no habría una caída, pero se haría lenta, conocido hoy como "degradación de servicio". Ambas amenazan la disponibilidad.
+
+Aquí surge la pregunta: ¿cómo prevenimos que todo se caiga y mantenemos una disponibilidad (suficientemente) alta? Bueno, si el problema es que todo está en una máquina, ¿qué tal si no lo estuviera?
+
+Entonces necesitamos varias máquinas, en luga de tener todas las partes del sistema en la misma, para que si una se cae, solo afecte a una porción del sistema.
+
+Si la aplicación está en la máquina A y la base de datos está en la máquina B, necesitamos una forma de que se comuniquen entre sí. ¿Puedes adivinarla?
+
+Esa es precisamente la idea detrás de una red: comunicación entre nodos (y es por eso que las máquinas dentro de un sistema distribuido son a menudo llamadas nodos).
+
+En pocas palabras: **los sistemas distribuidos son un conjunto de máquinas que se comunican entre sí a través de una red para cumplir un propósito específico.**
+
+Si bien son muy poderosas y han hecho posibles las plataformas masivas de la actualidad, vienen con sus propios retos, que la máquina A se caiga antes de recibir una respuesta de la máquina B, lo que es un recordatorio de que no hay soluciones milagrosas.
